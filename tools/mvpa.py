@@ -5,10 +5,6 @@
     Functions that make pattern analyses easier
 '''
 
-# maybe have to specify where these are...
-# from generic import symm_mat_to_ut_vec
-# from masking import make_nifti, get_nifti_info
-
 import time
 import numpy as np
 
