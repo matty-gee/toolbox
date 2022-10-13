@@ -7,11 +7,9 @@
 
 import time
 import numpy as np
-
 import nibabel as nib
 import nilearn as nil
 import brainiak.searchlight.searchlight
-
 from sklearn.pipeline import make_pipeline, Pipeline
 from nilearn.image import load_img, binarize_img, resample_to_img
 from nilearn.masking import compute_brain_mask
