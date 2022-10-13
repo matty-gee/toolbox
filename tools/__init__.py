@@ -1,3 +1,2 @@
 # to make importing easier
-
-from .mvpa import get_rdm
+from .mvpa import *
