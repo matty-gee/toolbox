@@ -8,7 +8,6 @@ from .masking import *
 from .matrices import *
 from .mvpa import *
 from .plotting import *
-from .quality import *
 from .regression import *
 from .stats import *
 from .utils import *
