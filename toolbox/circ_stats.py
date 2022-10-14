@@ -72,6 +72,7 @@ def _corr(x, y, axis=0):
 
 # conversions
 
+# need to check these more in depth:
 def map_360_to_180(degs_360):
     '''
     '''

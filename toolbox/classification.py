@@ -81,7 +81,7 @@ class ClassifierGridSearch(object):
 
         return df
 
-def permutation_clf_cv(clf, X, y, k=10, permutations=1000):
+def permutation_clf_cv(clf, X, y, k=10, cv=StratifiedKFold, permutations=1000):
     '''
         Run permuted classification with cross-validation
 
@@ -111,8 +111,7 @@ def permutation_clf_cv(clf, X, y, k=10, permutations=1000):
     perm_accs = np.zeros(permutations)
     for n in range(permutations): 
         acc = np.zeros(permutations)
-        cv  = StratifiedKFold(n_splits=k)  
-        for i, (train, test) in enumerate(cv.split(X, y)):
+        for i, (train, test) in enumerate(cv(n_splits=k).split(X, y)):
             y_train_ = y[train].copy()
             random.shuffle(y_train_) # break connection between data & labels in training
             clf_clone = clone(clf)
@@ -121,7 +120,7 @@ def permutation_clf_cv(clf, X, y, k=10, permutations=1000):
         perm_accs[n] = np.mean(acc) # mean acc across folds
     return perm_accs
 
-def run_classifier(clf, X, y, scale=False, cv_splits=6):
+def run_clf(clf, X, y, scale=False, cv=6):
     '''
         Run cross-validated classification 
 
@@ -136,7 +135,7 @@ def run_classifier(clf, X, y, scale=False, cv_splits=6):
         scale : bool (optional)
             Whether to standardize (within each fold) 
             Default: False
-        cv_splits : int or 'loo' or iterator (optional)
+        cv : int or 'loo' or iterator (optional)
             int : perform stratified k-fold cv
             'loo' : perform leave one out cv
             iterator : performn cv with specified indices
@@ -153,13 +152,13 @@ def run_classifier(clf, X, y, scale=False, cv_splits=6):
     # dummy_clf = sklearn.dummy.DummyClassifier(strategy='most_frequent')
 
     # cross-validator
-    if isinstance(cv_splits, int):
+    if isinstance(cv, int):
         # stratified to balance each fold by class (i.e., character) 
-        folds = StratifiedKFold(n_splits=cv_splits, random_state=22, shuffle=True).split(X, y)
-    elif (isinstance(cv_splits, str)) & (cv_splits=='loo'): 
+        folds = StratifiedKFold(n_splits=cv, random_state=22, shuffle=True).split(X, y)
+    elif (isinstance(cv, str)) & (cv=='loo'): 
         folds = LeaveOneOut().split(X, y)
     else:
-        folds = cv_splits
+        folds = cv
         
     X = VarianceThreshold().fit_transform(X) 
     
