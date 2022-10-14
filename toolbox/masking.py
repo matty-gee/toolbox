@@ -1,10 +1,3 @@
-#!/usr/bin/env python3
-
-'''
-    By Matthew Schafer, 2022
-    Functions that make masking easier
-'''
-
 import glob
 from os.path import exists
 
@@ -25,6 +18,7 @@ from nilearn.masking import compute_brain_mask
 def load_nifti(nifti_fname):  
     return nib.load(nifti_fname)
 
+
 def get_nifti_info(nifti):
     ''' return dimensions, voxel size and affine matrix of a nifti '''
     if isinstance(nifti, str): nifti = nib.load(nifti)
@@ -32,6 +26,7 @@ def get_nifti_info(nifti):
     vox_size = nifti.header.get_zooms()[0:3] # just get xyz
     affine_matrix = nifti.affine
     return dims, vox_size, affine_matrix 
+
 
 def make_nifti(brain_data, affine_matrix, vox_size):
     '''
@@ -57,6 +52,7 @@ def make_nifti(brain_data, affine_matrix, vox_size):
     if brain_data.ndim == 4: hdr.set_zooms((vox_size[0], vox_size[1], vox_size[2], 0))
     else:                    hdr.set_zooms((vox_size[0], vox_size[1], vox_size[2]))
     return brain_nii
+
 
 def save_as_nifti(brain_data, output_name, affine_mat, vox_size):
     '''
@@ -97,6 +93,7 @@ def get_incl_gm_mask(func_img, gm_thresh=0.25):
     incl_gm_mask = nil.masking.intersect_masks([incl_mask, gm_mask], threshold=1, connected=False)
     return incl_gm_mask
 
+
 def get_masked_img(func_img, mask_img):
     '''
         Returns an image but with only masked voxels
@@ -133,6 +130,7 @@ def get_masked_img(func_img, mask_img):
         func_img_masked = new_img_like(func_img, data, func_img.affine)
     return func_img_masked
 
+
 def get_voxels_from_mask(mask_img, sub_img, resample_to_sub=False, standardize=False):
     '''
         mask_img: 3d nii (ideally already resampled to correct dims)
@@ -148,8 +146,10 @@ def get_voxels_from_mask(mask_img, sub_img, resample_to_sub=False, standardize=F
         masker = NiftiMasker(mask_img=mask_img, standardize=standardize)
     return masker.fit_transform(sub_img)
 
+
 def find_roi_labels_ixs(labels, roi_name='Hippocampus'):
     return [np.where(np.array(labels) == label)[0][0] for label in [l for l in labels if roi_name in l]]
+
 
 def get_timeseries(func_img, 
                    mask=None,
@@ -262,18 +262,3 @@ def get_timeseries(func_img,
 
     return timeseries.T, masker
 
-
-## NOT SURE ABOUT THESE: seemed to fail with the tfce images...
-# def resample_to_nifti(nifti, nifti_template, interpolation='nearest'):
-#     try:    nii = nib.load(nifti)
-#     except: nii = nifti
-#     try:    template_nii = nib.load(nifti_template)
-#     except: template_nii = nifti_template
-#     resampled_nii = nil.image.resample_to_img(nii, template_nii, interpolation=interpolation)    
-#     return resampled_nii   
-
-# def resample_nifti(nii, target_affine, target_shape, interpolation='nearest'):
-#     if isinstance(nii, str): 
-#         nii = nib.load(nii)
-#     resampled_nii = nil.image.resample_img(nii, target_affine=target_affine, target_shape=target_shape, interpolation=interpolation)    
-#     return resampled_nii  

@@ -1,9 +1,4 @@
-#!/usr/bin/env python3
-
-'''
-    By Matthew Schafer, 2022
-    Functions that make manipulating matrices easier
-'''
+# TODO: make a master reshape matrix function?
 
 import sklearn as skl
 import nilearn as nil
@@ -20,6 +15,7 @@ def bootstrap_matrix(matrix, random_state=None):
     bs = sorted(s.choice(np.arange(n), size=n, replace=True))
     return matrix[bs, :][:, bs]
 
+
 def digitize_matrix(matrix, n_bins=10): 
     '''
         Digitize an input matrix to n bins (10 bins by default)
@@ -30,6 +26,7 @@ def digitize_matrix(matrix, n_bins=10):
     matrix_digitized = np.reshape(matrix_vec_digitized, np.shape(matrix)) # reshape to matrix
     matrix_digitized = (matrix_digitized + matrix_digitized.T) / 2  # force symmetry in the plot
     return matrix_digitized
+
 
 def symmetrize_matrix(a):
     """
@@ -46,10 +43,12 @@ def symmetrize_matrix(a):
     """
     return a + a.T - np.diag(a.diagonal())
 
+
 def fill_in_upper_tri(sym_mat, diagonal=0):
     sym_mat = sym_mat + sym_mat.T - np.diag(np.diag(sym_mat))
     np.fill_diagonal(sym_mat, diagonal)
     return sym_mat
+
 
 def symm_mat_labels_to_vec(labels, upper=True):
     '''
@@ -69,11 +68,13 @@ def symm_mat_labels_to_vec(labels, upper=True):
         vec = lt.values.flatten()
     return vec[vec!=0] 
 
+
 def sort_symm_mat(mat, vec):
     
     ''' Sorts rows/columns of a symmetrical matrix according to a separate vector '''
     sort = vec.argsort()
     return mat[sort][:, sort]
+
 
 def make_symm_mat_mask(orig_ixs, size=(63)):
     '''
@@ -102,16 +103,18 @@ def make_symm_mat_mask(orig_ixs, size=(63)):
         mask[:,ix] = 0
     return symm_mat_to_ut_vec(mask == 1)
 
+
 def ut_vec_pw_dist(x, metric='euclidean'):
     if (isinstance(x, pd.Series)) or (isinstance(x, pd.DataFrame)): x = x.values
     if x.ndim == 1:  x = x.reshape(-1,1)
     return symm_mat_to_ut_vec(pairwise_distances(x, metric=metric))
 
-# change shape 
+ 
 def symm_mat_to_ut_vec(mat):
     """ go from symmetrical matrix to vectorized/flattened upper triangle """
     vec_ut = mat[np.triu_indices(len(mat), k=1)]
     return vec_ut
+
 
 def ut_mat_to_symm_mat(mat):
     ''' go from upper tri matrix to symmetrical matrix '''
@@ -120,6 +123,7 @@ def ut_mat_to_symm_mat(mat):
             mat[j][i] = mat[i][j]
     return mat
 
+
 def ut_vec_to_symm_mat(vec):
     '''
         go from vectorized/flattened upper tri (to upper tri matrix) to symmetrical matrix
@@ -127,6 +131,7 @@ def ut_vec_to_symm_mat(vec):
     ut_mat   = ut_vec_to_ut_mat(vec)
     symm_mat = ut_mat_to_symm_mat(ut_mat)
     return symm_mat
+
 
 def ut_vec_to_ut_mat(vec):
     '''
@@ -157,6 +162,7 @@ def ut_vec_to_ut_mat(vec):
             r += 1
         c += 1
     return mat
+
 
 def remove_diag(arr):
     arr = arr.copy()

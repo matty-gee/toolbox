@@ -1,22 +1,18 @@
-#!/usr/bin/env python3
-
-'''
-    By Matthew Schafer, 2022
-'''
-
 import random
 import scipy
 import pandas as pd
 import numpy as np
+
 import numpy.linalg as la
 import torch 
+import patsy
 import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression, PoissonRegressor, HuberRegressor
+
 import matplotlib.pyplot as plt
 import seaborn as sns
-import patsy
 
-from model_selection import compute_bic, loglike
+# from model_selection import compute_bic, loglike
 
 def run_ols(X_labels_, y_label_, df_, covariates=None, n_splits=None, plot=False):
     '''
@@ -176,7 +172,7 @@ def run_ols(X_labels_, y_label_, df_, covariates=None, n_splits=None, plot=False
         return  output_df, ols_obj
         
 ##############################################################
-### NON LINEAR REGRESSIONS
+## NON LINEAR REGRESSIONS
 ##############################################################
 
 class ExponentialRegression:
@@ -213,6 +209,7 @@ class ExponentialRegression:
         
         return predictions
     
+
 class PolynomialRegression:
     '''
     TODO: add __init__, description
@@ -253,13 +250,14 @@ class PolynomialRegression:
         return predictions
        
 ##############################################################
-### MODEL PERFORMANCE
+## MODEL PERFORMANCE
 ##############################################################
 
 def root_squared_error(y, predicted):
     rss = np.sum((y - predicted) ** 2)
     rse = (rss / (len(y) - 2)) ** 0.5
     return rse
+
 
 def regression_jointplots(xs, y, data, hue=None, dots_color='blue', run_ols=False,
                           height=6, ratio=5, space=0.2, kde_levels=0, x_jitter=.25, y_jitter=.25, xlabels=None, ylabel=None, margin_norm=False):
@@ -434,7 +432,7 @@ def regression_jointplots(xs, y, data, hue=None, dots_color='blue', run_ols=Fals
     return fig
 
 ##############################################################
-### ORTHOGONALIZATION - CAUTION: all trying to use gram schmidt but may give diff results? needs more testing
+## ORTHOGONALIZATION - CAUTION: all trying to use gram schmidt but may give diff results? needs more testing
 ##############################################################
 
 def gram_schmidt(X):
@@ -446,6 +444,7 @@ def gram_schmidt(X):
     Q, R = np.linalg.qr(X)
     return Q.T
  
+
 def orthonormalize(vectors):    
     """    
         Orthonormalizes the vectors using gram schmidt procedure.    
@@ -467,6 +466,7 @@ def orthonormalize(vectors):
         orthonormalized_vectors[:, i] = (vector - PV_vector) / torch.norm(vector - PV_vector, p=2)    
     
     return orthonormalized_vectors
+
 
 def orthogonalize(U, eps=1e-15):
     """

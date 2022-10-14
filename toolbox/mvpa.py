@@ -14,7 +14,7 @@ import numpy as np
 
 import nibabel as nib
 import nilearn as nil
-import brainiak.searchlight.searchlight
+# import brainiak.searchlight.searchlight
 
 from sklearn.pipeline import make_pipeline, Pipeline
 from nilearn.image import load_img, binarize_img, resample_to_img
@@ -27,6 +27,7 @@ from sklearn.manifold import MDS
 from sklearn.svm import SVC
 from sklearn.linear_model import LinearRegression, HuberRegressor
 from sklearn.model_selection import StratifiedShuffleSplit, cross_val_score
+
 
 def get_rdm(betas):
     '''
@@ -83,10 +84,12 @@ def fit_huber(X, y, epsilon = 1.75, alpha = 0.0001):
     huber.fit(X, y)
     return huber.coef_
 
+
 def avg_ps(betas):
     rsm = 1 - get_rdm(betas)
     ps  = np.mean(symm_mat_to_ut_vec(rsm)) # mean fisher z-transformed correlation
     return ps
+
 
 def fit_mds(rdm, n_components=5):
     '''
@@ -120,6 +123,7 @@ def fit_mds(rdm, n_components=5):
     kruskal_stress = np.sqrt(mds_fitted.stress_ / (0.5 * np.sum(rdm ** 2))) 
 
     return embedding, kruskal_stress
+
 
 def bin_distances(distances, n_bins=2, encode='ordinal', strategy='quantile'):
     '''
@@ -160,6 +164,7 @@ def bin_distances(distances, n_bins=2, encode='ordinal', strategy='quantile'):
     mean_dists = np.array([np.mean(distances[bin_ixs==b]) for b in range(n_bins)])
     
     return bin_ixs, mean_dists
+
 
 def fit_clf(clf, X, y, cv_splits=6, scale=True):
 
@@ -245,6 +250,7 @@ def get_sl_data(brain_data, sl_mask, verbose=True):
     
     return reshaped
 
+
 def create_pipeline(estimator, steps=[]):
     
     pl_dict = {'scaler': StandardScaler(), 
@@ -252,6 +258,7 @@ def create_pipeline(estimator, steps=[]):
                'pca': PCA(n_components = 25)}
     
     return Pipeline([(step, pl_dict[step]) for step in steps] + [('estimator', estimator)])
+
 
 def sl_huber_rsa(brain_data, sl_mask, myrad, bcvar):
     '''
@@ -297,6 +304,7 @@ def sl_huber_rsa(brain_data, sl_mask, myrad, bcvar):
     
     return estimate
 
+
 def clf_cv(pl, X, y, cv, gridsearch=False, parameters=None):
     
     if gridsearch:
@@ -313,6 +321,7 @@ def clf_cv(pl, X, y, cv, gridsearch=False, parameters=None):
         acc = cross_val_score(pl, X, y, cv=cv)
         
     return acc.mean()
+
 
 def sl_svm(data, mask, myrad, bcvar, pl_steps=['scaler'], gridsearch=False):
     '''
@@ -368,6 +377,7 @@ def sl_svm(data, mask, myrad, bcvar, pl_steps=['scaler'], gridsearch=False):
     if len(data) == 1: return accuracy[0]
     else:              return accuracy
 
+
 def sl_svm_group(data, sl_mask, myrad, bcvar):
     '''
         Run an SVM searchlight on subject-level
@@ -402,6 +412,7 @@ def sl_svm_group(data, sl_mask, myrad, bcvar):
     acc = cross_val_score(svm, X, y, cv=5)
     
     return acc.mean()
+
 
 def run_sl(images, masks, sl_kernel, bcvar=None, other_masks=None, shape='ball', radius=3, min_prop=0.10, max_blk_edge=10):
     '''

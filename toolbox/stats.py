@@ -1,9 +1,3 @@
-#!/usr/bin/env python3
-
-'''
-    By Matthew Schafer, 2022
-'''
-
 import numpy as np
 import pandas as pd
 import statsmodels.stats.multitest as multi
@@ -16,7 +10,7 @@ from scipy.special import betainc
 from sklearn.linear_model import LinearRegression, HuberRegressor
 
 ##################################################################
-# GENERIC
+# MCC
 ##################################################################
 
 import statsmodels.stats.multitest as smt
@@ -24,7 +18,7 @@ def correct_pvals(pvals, method='fdr_bh'):
     return smt.multipletests(pvals, alpha=0.01, method=method)[1]
 
 ##################################################################
-## CONFIDENCE INTERVALS
+## CIs
 ##################################################################
 
 def parametric_ci(coeffs, conf=99):
@@ -44,6 +38,8 @@ def parametric_ci(coeffs, conf=99):
     h  = se * t.ppf((1 + (conf/100)) / 2, df)
     # TO DO - use normal dist, rather than t dist, if n >= 30
     return [m - h, m + h]
+
+
 def bootstrap_ci(coeffs, conf=99, num_samples=5000): 
     '''
         Computes a bootstrapped distribution of coefficients w/ confidence interval
@@ -62,7 +58,7 @@ def bootstrap_ci(coeffs, conf=99, num_samples=5000):
     return ci
 
 ##################################################################
-## EFFECT SIZE
+## Effect sizes
 ##################################################################
 
 def cohens_d_rm(measure_1, measure_2, conf=99):
@@ -82,11 +78,15 @@ def cohens_d_rm(measure_1, measure_2, conf=99):
     d_rm      = mean_diff / std_rm
     
     return d_rm
+
+
 def cohens_d_rm_ci(d_rm, n):
     # can also get a ci for cohens d, although apparently not agreed upon
     se = np.sqrt((2*(1-r)/n) + (d**2/2*n))
     h  = se * t.ppf((1 + (conf/100)) / 2, n - 1)
     ci = [d_rm - h,  d_rm + h]
+
+
 def cohens_d_av(measure_1, measure_2): 
     '''
         cohens d with average variance: standardized effect size for t-tests for within subjects repeated measures 
@@ -107,6 +107,8 @@ def cohens_d_av(measure_1, measure_2):
     mean_std  = np.mean((np.std(measure_1), np.std(measure_2)))    
     d_av      = mean_diff / mean_std        
     return d_av
+
+
 def cohens_d_1samp(sample, popmean=0, hedges=False):
     '''
         cohens d for 1 sample t-test: standardized effect size for 1 sample t-tests
@@ -122,6 +124,8 @@ def cohens_d_1samp(sample, popmean=0, hedges=False):
     '''
     d = np.abs((np.mean(sample) - popmean) / np.std(sample))
     return d
+
+
 def cohens_d_1samp_ci(d, n, conf=99):
     '''
        compute a parametric ci: d +/- se * t_crit
@@ -130,6 +134,7 @@ def cohens_d_1samp_ci(d, n, conf=99):
     se = np.sqrt((1/n) + (d**2)/(2*n)) 
     h  = se * t.ppf((1 + (conf/100)) / 2, n - 1)
     return [d - h, d + h]
+
 
 def hedges_correction(d, df):
     '''

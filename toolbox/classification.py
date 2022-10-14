@@ -10,7 +10,7 @@ from sklearn.feature_selection import VarianceThreshold
 from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import GridSearchCV, LeaveOneOut, StratifiedKFold, StratifiedShuffleSplit
 
-## classifiers
+# diff classifiers
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.naive_bayes import GaussianNB
 from sklearn.gaussian_process import GaussianProcessClassifier
@@ -22,6 +22,7 @@ from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
 from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
 from sklearn.dummy import DummyClassifier
+
 
 class ClassifierGridSearch(object):
 
@@ -81,7 +82,8 @@ class ClassifierGridSearch(object):
 
         return df
 
-def permutation_clf_cv(clf, X, y, k=10, cv=StratifiedKFold, permutations=1000):
+
+def run_perm_clf(clf, X, y, k=10, cv=StratifiedKFold, permutations=1000):
     '''
         Run permuted classification with cross-validation
 
@@ -119,6 +121,7 @@ def permutation_clf_cv(clf, X, y, k=10, cv=StratifiedKFold, permutations=1000):
             acc[i] = clf_clone.score(X[test], y[test])
         perm_accs[n] = np.mean(acc) # mean acc across folds
     return perm_accs
+
 
 def run_clf(clf, X, y, scale=False, cv=6):
     '''

@@ -99,6 +99,7 @@ def compute_roi_correlation(ts_fname, kind='correlation'):
     fc_fname = fc_fname.replace('timeseries', kind.replace(' ', '_') + '_z') # file name
     fc_z.to_excel(fc_fname)
 
+
 def compute_region_to_voxel_fc(sub_id, img_fname, out_dir, roi_type='roi', mask=None, mask_name=None, radius=8):
     '''
         Parameters
@@ -145,7 +146,8 @@ def compute_region_to_voxel_fc(sub_id, img_fname, out_dir, roi_type='roi', mask=
 ## network analysis
 ########################################################################################################
 
-class graph_properties:
+
+class GraphProperties:
 
     '''
         By KK & MS
@@ -215,7 +217,8 @@ class graph_properties:
                     nx.set_node_attributes(self.graph, {node_name: counter}, "community")
                 counter += 1
         return comms
-    
+
+
 def compute_graph_properties(fc_fname, atlas='HO', thresh=0.95, weighted=False):
 
     '''
@@ -255,6 +258,7 @@ def compute_graph_properties(fc_fname, atlas='HO', thresh=0.95, weighted=False):
     if weighted: out_fname = f'{out_fname}_weighted_graph.pkl'
     else:        out_fname = f'{out_fname}_unweighted_graph.pkl'
     pickle_file(graph_data, out_fname)
+
 
 ########################################################################################################
 ## plotting etc...

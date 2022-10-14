@@ -1,8 +1,5 @@
-#!/usr/bin/env python3
-
 '''
-    By Matthew Schafer, 2022
-    This file contains functions useful for pattern analyses
+Functions useful for pattern analyses
 '''
 
 import scipy
@@ -17,10 +14,12 @@ def rank(arr, method='average'):
     ranked = rankdata(arr, method=method)
     return ranked
     
+
 def rank_analysis(xlabels, ylabels, df, alternative='greater'):
     coefs = np.array([scipy.stats.kendalltau(sub[xlabels], sub[ylabels])[0] for s, sub in df.iterrows()])
     t,p   = scipy.stats.wilcoxon(coefs[np.isfinite(coefs)], alternative=alternative)
     return coefs, [t,p]
+
 
 def similarity_analysis(xlabels, ylabels, df, metric_x='euclidean', metric_y='euclidean', alternative='greater'):
     coefs = []

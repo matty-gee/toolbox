@@ -3,22 +3,23 @@ import pandas as pd
 import numpy as np
 import scipy
 from scipy.stats import chi2, pearsonr
+from factor_analyzer import ConfirmatoryFactorAnalyzer, ModelSpecificationParser
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-from factor_analyzer import ConfirmatoryFactorAnalyzer, ModelSpecificationParser
-
-from generic import *
-from statistics import *
-from matrices import *
-from model_selection import * 
+# from generic import *
+# from statistics import *
+# from matrices import *
+# from model_selection import * 
 
 def get_unique(seq):
     seen = set()
     seen_add = seen.add
     return [x for x in seq if not (x in seen or seen_add(x))]
 
-class dim_reduction(object):
+
+class DimReduction(object):
 
     '''[By Matthew Schafer, github: @matty-gee; 2020ish]'''
         

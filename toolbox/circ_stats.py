@@ -1,29 +1,26 @@
 '''
-    Functions related to circular statistics and other related problems - e.g., angles, distances, trigonemetry.
-    all functions expect radians
-    adapted many functions from astropy to output more (e.g., both p-values and test statistics etc...)
-    used Matlab's circstat to guide some of the additions
-    used Matlab's circstat function naming 
+Functions related to circular statistics and other related problems - e.g., angles, distances, trigonometry.
+Note: all functions that accept angles expect radians
+Adapted/copied code from astropy & Matlab's circstat [see docstrings]
 '''
 
 import numpy as np
 import pandas as pd
 import scipy
-from scipy import stats
-from scipy.stats import norm
-import sklearn
+from scipy.spatial.distance import pdist, squareform
 from sklearn.metrics import pairwise_distances
+
 from turtle import degrees
 import pycircstat
 import astropy.stats
-import matplotlib.pyplot as plt
-from scipy.spatial.distance import pdist, squareform
 from shapely.geometry import Polygon
+
+import matplotlib.pyplot as plt
 
 # [member[0] for member in list(getmembers(pycircstat, isfunction))] # get all functions within a module
 
 ##################################################################
-### Helper functions from astropy etc, so adapted code works...
+## Private functions from astropy
 ##################################################################
 
 def _components(data, p=1, phi=0.0, axis=None, weights=None):
@@ -32,7 +29,7 @@ def _components(data, p=1, phi=0.0, axis=None, weights=None):
     if weights is None:
         weights = np.ones((1,))
     try:
-        weights = np.broadcast_to(weights, data.shape)
+        weights = np.broadcast_
     except ValueError:
         raise ValueError('Weights and data have inconsistent shape.')
 
@@ -40,6 +37,7 @@ def _components(data, p=1, phi=0.0, axis=None, weights=None):
     S = np.sum(weights * np.sin(p * (data - phi)), axis)/np.sum(weights, axis)
 
     return C, S
+
 
 def _angle(data, p=1, phi=0.0, axis=None, weights=None):
     ''' computing the generalized sample mean angle'''
@@ -55,10 +53,12 @@ def _angle(data, p=1, phi=0.0, axis=None, weights=None):
 
     return theta
 
+
 def _length(data, p=1, phi=0.0, axis=None, weights=None):
     ''' computing the generalized sample length '''
     C, S = _components(data, p, phi, axis, weights)
     return np.hypot(S, C)
+
 
 def _corr(x, y, axis=0):
     ''' correlate x & y '''
@@ -67,12 +67,10 @@ def _corr(x, y, axis=0):
             / np.std(x, axis=axis) / np.std(y, axis=axis) / x.shape[axis]
 
 ##################################################################
-### compute angles & vectors  
+## Vectors  
 ################################################################## 
 
-# conversions
-
-# need to check these more in depth:
+# TODO: need to check these more in depth:
 def map_360_to_180(degs_360):
     '''
     '''
@@ -80,10 +78,11 @@ def map_360_to_180(degs_360):
     degs_180[degs_180 > 180] = degs_180[degs_180 > 180] - 360
     return degs_180
     
+
 def map_180_to_360(degs_180):
     return degs_180 % 360
 
-# vector normalization
+
 def l2_norm(v):
     ''' 
         Returns vectors l2 norm/magnitude/length 
@@ -91,6 +90,7 @@ def l2_norm(v):
         (Equivalent to: np.linalg.norm(v))
     '''
     return np.sqrt(np.sum(np.square(v)))
+
 
 def l1_norm(v):
     '''
@@ -100,11 +100,13 @@ def l1_norm(v):
     '''
     return np.sum(np.abs(v))
 
+
 def l1_normalize(v):
     ''' 
         Returns l1 normalized vector 
     '''
     return v / l2_norm(v)
+
 
 def l2_normalize(v):
     ''' 
@@ -112,10 +114,11 @@ def l2_normalize(v):
     '''
     return v / l2_norm(v)
 
-# angles & distances
+
 def coincident_vectors(u, v):
     ''' Checks if vectors (u & v) are the same or scalar multiples of each other'''
     return np.dot(u, v) * np.dot(u, v) == np.dot(u, u) * np.dot(v, v)
+
 
 def angle_between_vectors(u, v, direction=None, verbose=False):
     '''
@@ -152,8 +155,7 @@ def angle_between_vectors(u, v, direction=None, verbose=False):
     #         if len(U) < len(V): U = np.repeat(np.expand_dims(U, 0), len(V), axis=0)
     #         else:               V = np.repeat(np.expand_dims(V, 0), len(U), axis=0)
     #     rads = []
-    #     for u, v in zip(U, V):    
-        
+    #     for u, v in zip(U, V):            
     # if one of vectors is at origin, the angle is undefined but could be considered as orthogonal (90 degrees)
     if ((u==0).all()) or ((v==0).all()): 
         if verbose: print(u, v, 'at least 1 vector at origin; treating as orthogonal')
@@ -186,6 +188,7 @@ def angle_between_vectors(u, v, direction=None, verbose=False):
             rad = (np.arctan2(*u[::-1]) - np.arctan2(*v[::-1])) % (2 * np.pi)
             
     return rad
+
 
 def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=False):
     '''
@@ -261,12 +264,14 @@ def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=Fal
     if verbose: [print(m) for m in messages]
     return radians
 
+
 def cosine_distance(u, v=None):
     ''' 
         cosine distance of two vectors u & v = 1 - ((u . v) / (||u|| . ||v||))
         to change origin, subtract new origin coordinates from vector(s)
     '''
     return pairwise_distances(u, v, metric='cosine')
+
 
 def cosine_similarity(u, v=None):
     ''' 
@@ -275,6 +280,7 @@ def cosine_similarity(u, v=None):
     '''
     return 1 - pairwise_distances(u, v, metric='cosine')
 
+
 def angular_distance(u, v=None):
     ''' 
         angular distance between two vectors = theta/pi
@@ -282,6 +288,7 @@ def angular_distance(u, v=None):
         to change origin, subtract new origin coordinates from vector(s
     '''
     return np.arccos(cosine_similarity(u, v))/np.pi
+
 
 def angular_similarity(u, v=None):
     ''' 
@@ -303,6 +310,7 @@ def cosine_distance(u, v=None):
     '''
     return pairwise_distances(u, v, metric='cosine')
 
+
 def cosine_similarity(u, v=None):
     ''' 
         cosine similarity of (u, v) = dot(u,v) / dot(l2_norm(u), l2_norm(v))
@@ -311,6 +319,7 @@ def cosine_similarity(u, v=None):
     '''
     return 1 - pairwise_distances(u, v, metric='cosine')
 
+
 def angular_distance(u, v=None):
     ''' 
         angular distance of (u, v) = arccos(cosine_similarity(u, v)) / pi
@@ -318,12 +327,14 @@ def angular_distance(u, v=None):
     '''
     return np.arccos(cosine_similarity(u, v))/np.pi
 
+
 def angular_similarity(u, v=None):
     ''' 
         angular similarity between two vectors = 1 - (arccos(cosine_similarity(u, v)) / pi)
         returns similarity measure [-1,1]
     '''
     return 1 - (np.arccos(cosine_similarity(u, v))/np.pi)
+
 
 def polar_coordinates(u, v=None):   
     '''
@@ -353,11 +364,12 @@ def angles_counterclockwise(u, v=None):
             angle_matrix[i, j] = np.arctan2(xy1[1]-xy2[1], xy1[0]-xy2[0]) # expects: y,x 
             angle_matrix[j, i] = angle_matrix[i, j]
     return angle_matrix
-    
-# other similarity/dissimilarity things
+
+
 def binary_distances(binary_data, metric='jaccard'):
     ''' returns binary distances '''
     return squareform(pdist(binary_data, metric=metric))
+
 
 def shape_similarity(coords, checkRotation=False, rotations=None):
     import shapesimilarity.shape_similarity as ss
@@ -395,6 +407,7 @@ def shape_similarity(coords, checkRotation=False, rotations=None):
     similarity = fill_in_upper_tri(sim_mat, 1)
     return similarity  
 
+
 def shape_overlap(coords):
     '''
         Computes percentage overlap between polygons 
@@ -427,7 +440,7 @@ def shape_overlap(coords):
     return overlap
 
 ##################################################################
-### angle descriptive statistics 
+## Angle descriptive statistics 
 ##################################################################
 
 circ_mean     = pycircstat.mean
@@ -435,8 +448,8 @@ circ_confmean = pycircstat.mean_ci_limits
 circ_median   = pycircstat.median
 
 # not sure of the difference between "circular" & "angular" standard deviation
-    # astropy.stats.circstd gives same answer as pycircstat.astd, NOT pycircstat's allegeldy "circular" std function
-    # but scipy.stats.circstd does give the same answer as pycircstat.std
+# astropy.stats.circstd gives same answer as pycircstat.astd, NOT pycircstat's allegeldy "circular" std function
+# but scipy.stats.circstd does give the same answer as pycircstat.std
 
 circ_cstd     = pycircstat.std # "circular"
 circ_cvar     = pycircstat.var 
@@ -450,7 +463,7 @@ circ_pdiff    = pycircstat.pairwise_cdiff
 circ_r        = pycircstat.resultant_vector_length
 
 ##################################################################
-### distributional tests
+## Distributional tests
 ##################################################################
 
 def circ_rtest(angles, axis=None, weights=None):
@@ -502,6 +515,8 @@ def circ_rtest(angles, axis=None, weights=None):
     pval = np.exp(-z)*tmp
     
     return [z, pval]
+
+
 def circ_vtest(angles, mu=0.0, axis=None, weights=None):
     """ 
     [EDITS: 
@@ -543,12 +558,14 @@ def circ_vtest(angles, mu=0.0, axis=None, weights=None):
     n = np.size(angles, axis=axis)
     R0bar = np.sum(weights * np.cos(angles - mu), axis)/np.sum(weights, axis)
     z = np.sqrt(2.0 * n) * R0bar
-    pz = norm.cdf(z)
-    fz = norm.pdf(z)
+    pz = scipy.stats.norm.cdf(z)
+    fz = scipy.stats.norm.pdf(z)
     # see reference [3]
     pval = 1 - pz + fz*((3*z - z**3)/(16.0*n) +
                            (15*z + 305*z**3 - 125*z**5 + 9*z**7)/(4608.0*n*n))
     return [z, pval]
+
+
 def circ_symtest(angles, axis=None):
     """
     [EDITED from pycircstat slightly
@@ -588,7 +605,7 @@ circ_raotest = pycircstat.raospacing
 circ_wwtest  = pycircstat.watson_williams # anova
 
 ##################################################################
-### Correlations & regressions
+## Correlations & regressions
 ##################################################################
 
 def circ_corrcc(angles1, angles2):
@@ -618,11 +635,13 @@ def circ_corrcc(angles1, angles2):
     # avoid division by 0 (?)
     if l22 != 0:
         ts = np.sqrt((n * l20 * l02)/l22) * rho
-        pval = 2 * (1 - norm.cdf(np.abs(ts)))
+        pval = 2 * (1 - scipy.stats.norm.cdf(np.abs(ts)))
     else: 
         pval = np.nan
     
     return [rho, pval]
+
+
 def circ_corrcc_matrix(df_deg):
     '''
     [[TO DO: IS SLOW]]
@@ -652,6 +671,8 @@ def circ_corrcc_matrix(df_deg):
         coefs[c,c+1:n] = np.array(corrs).T[0] # get rid of transpose...?
         pvals[c,c+1:n] = np.array(corrs).T[1]
     return coefs, pvals
+
+
 def circ_corrcl(angles, x, axis=None):
     """
     [EDITED from pycircstats
@@ -685,6 +706,7 @@ def circ_corrcl(angles, x, axis=None):
     rho = np.sqrt((rxc ** 2 + rxs ** 2 - 2 * rxc * rxs * rcs) / (1 - rcs ** 2))
     pval = 1 - scipy.stats.chi2.cdf(len(angles)*rho**2, 2)
     return [rho, pval]
+
 
 class BaseRegressor(object):
     """
@@ -744,6 +766,8 @@ class BaseRegressor(object):
     def __call__(self, *args, **kwargs):
         assert self.isfit(), "Regressor must be trained first."
         return self.predict(*args, **kwargs)
+
+
 class circ_linear_regression(BaseRegressor):
     """
     [EDITED lightly from pycircstat]
@@ -804,7 +828,7 @@ class circ_linear_regression(BaseRegressor):
         n = len(angles)
         r2 = (rxc**2 + rxs**2 - 2*rxc*rxs*rcs)/(1 - rcs**2)
         f = (n-3)*r2/(1-r2)
-        p = stats.f.sf(f, 2, n-3)
+        p = scipy.stats.f.sf(f, 2, n-3)
 
         df = pd.DataFrame(dict(
             test = ['Shapiro-Wilk','Liddell-Ord'],
@@ -813,6 +837,8 @@ class circ_linear_regression(BaseRegressor):
             dof = [None, (2, n-3)]
         )).set_index('test')
         return df 
+
+
 class circ_circ_regression(BaseRegressor):
     """
     [EDITED lightly from pycircstat]
@@ -868,6 +894,8 @@ def angle_to_point_on_circle(a, origin_xy=[0,0], radius=3):
     x = origin_xy[0] + radius + np.cos(a)
     y = origin_xy[1] + radius + np.sin(a)
     return np.array([x,y]).T
+
+
 def circ_vectors(a, r):
     '''
         a=angles in degrees, r=distances
@@ -878,7 +906,7 @@ def circ_vectors(a, r):
     xy_unit = np.array([np.cos(a_rad), np.sin(a_rad)]).T
     return xy_comp, xy_unit
 
-## plot vectors
+
 def vector_plot(ax, xy_comp, xy_unit, cluster_ids=None):
     '''
         plot the x & y components and unit circle values 
@@ -905,10 +933,13 @@ def vector_plot(ax, xy_comp, xy_unit, cluster_ids=None):
     b.set_color('black')
     b.set_linewidth(1)   
 
+
 def random_colors(num_colors=10):
     from random import randint
     colors = ['#%06X' % randint(0, 0xFFFFFF) for i in range(num_colors)]
     return colors
+
+
 def cluster_vector_plot(a, r, cluster_ids=None):
     '''
         plot the x & y components and unit circle values, colored by cluster id
@@ -921,7 +952,7 @@ def cluster_vector_plot(a, r, cluster_ids=None):
     xy_comp, xy_unit = circ_vectors(a, r)
     vector_plot(xy_comp, xy_unit, color=colors_)
 
-# plot angles
+
 def circular_hist(ax, x, color='blue', n_bins=16, density=True, offset=0, gaps=True):
     """
     TO DO: add mean circular angle...
