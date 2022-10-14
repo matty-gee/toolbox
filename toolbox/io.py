@@ -1,3 +1,4 @@
+import pandas as pd
 from six.moves import cPickle as pickle 
 import json
 from json import JSONEncoder
