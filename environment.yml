@@ -1,0 +1,17 @@
+name: package
+channels:
+  - defaults
+  - conda-forge
+dependencies: 
+  - python>=3.7 # which python?
+  - jupyter 
+  - ipykernel
+  - git
+  - scikit-learn-intelex
+  - pip3
+  - pip3: 
+      - -r requirements.txt
+  #     - git+https://github.com/matty-gee/package.git # my code that should be downloaded w/ this?
+
+# ResolvePackageNotFound error: try pip
+# what abt packages like time etc?
