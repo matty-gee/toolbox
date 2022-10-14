@@ -8,6 +8,7 @@ dependencies:
   - ipykernel
   - git
   - scikit-learn-intelex
+  - pycircstat
   - pip
   - pip: 
       - git+https://github.com/nilearn/nilearn.git#egg=nilearn # dev ver
