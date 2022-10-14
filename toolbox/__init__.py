@@ -1,2 +1,2 @@
 # to make importing easier
-from .mvpa import *
+from .module import *
