@@ -1,16 +1,4 @@
 # to make importing easier
-import .circ_stats
-import .classification
-import .dim_reduction 
-import .func_conn 
-import .io 
-import .masking 
-import .matrices
-import .mvpa 
-import .plotting 
-import .regression 
-import .stats
-import .utils 
 
 # from .circ_stats import *
 # from .classification import *
