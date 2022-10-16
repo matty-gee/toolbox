@@ -2,17 +2,15 @@ import random
 import scipy
 import pandas as pd
 import numpy as np
-
-import numpy.linalg as la
-import torch 
 import patsy
 import statsmodels.api as sm
 from sklearn.linear_model import LinearRegression, PoissonRegressor, HuberRegressor
-
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-# from model_selection import compute_bic, loglike
+##############################################################
+## Standard regressions
+##############################################################
 
 def run_ols(X_labels_, y_label_, df_, covariates=None, n_splits=None, plot=False):
     '''
@@ -172,7 +170,7 @@ def run_ols(X_labels_, y_label_, df_, covariates=None, n_splits=None, plot=False
         return  output_df, ols_obj
         
 ##############################################################
-## NON LINEAR REGRESSIONS
+## Non-standard/non-linear
 ##############################################################
 
 class ExponentialRegression:
@@ -250,7 +248,7 @@ class PolynomialRegression:
         return predictions
        
 ##############################################################
-## MODEL PERFORMANCE
+## Performance metrics & plots
 ##############################################################
 
 def root_squared_error(y, predicted):
@@ -432,77 +430,54 @@ def regression_jointplots(xs, y, data, hue=None, dots_color='blue', run_ols=Fals
     return fig
 
 ##############################################################
-## ORTHOGONALIZATION - CAUTION: all trying to use gram schmidt but may give diff results? needs more testing
+## Orthogonalization - CAUTION: all trying to use gram schmidt but may give diff results? needs more testing
 ##############################################################
 
-def gram_schmidt(X):
-    ''' 
-        orthogonalize columns in matrix, using Gram-Schmidt Orthogonalization.
-        order matters
-        return in same shape as original
-    '''
-    Q, R = np.linalg.qr(X)
-    return Q.T
+# def gram_schmidt(X):
+#     ''' 
+#         orthogonalize columns in matrix, using Gram-Schmidt Orthogonalization.
+#         order matters
+#         return in same shape as original
+#     '''
+#     Q, R = np.linalg.qr(X)
+#     return Q.T
  
 
-def orthonormalize(vectors):    
-    """    
-        Orthonormalizes the vectors using gram schmidt procedure.    
+# def orthogonalize(U, eps=1e-15):
+#     """
+#     Orthogonalizes the matrix U (d x n) using Gram-Schmidt Orthogonalization.
+#     If the columns of U are linearly dependent with rank(U) = r, the last n-r columns 
+#     will be 0.
     
-        Parameters:    
-            vectors: torch tensor, size (dimension, n_vectors)    
-                    they must be linearly independant    
-        Returns:    
-            orthonormalized_vectors: torch tensor, size (dimension, n_vectors)    
-    """    
-    assert (vectors.size(1) <= vectors.size(0)), 'number of vectors must be smaller or equal to the dimension'    
-    orthonormalized_vectors = torch.zeros_like(vectors)    
-    orthonormalized_vectors[:, 0] = vectors[:, 0] / torch.norm(vectors[:, 0], p=2)    
+#     Args:
+#         U (numpy.array): A d x n matrix with columns that need to be orthogonalized.
+#         eps (float): Threshold value below which numbers are regarded as 0 (default=1e-15).
     
-    for i in range(1, orthonormalized_vectors.size(1)):    
-        vector = vectors[:, i]    
-        V = orthonormalized_vectors[:, :i]    
-        PV_vector= torch.mv(V, torch.mv(V.t(), vector))    
-        orthonormalized_vectors[:, i] = (vector - PV_vector) / torch.norm(vector - PV_vector, p=2)    
+#     Returns:
+#         (numpy.array): A d x n orthogonal matrix. If the input matrix U's cols were
+#             not linearly independent, then the last n-r cols are zeros.
     
-    return orthonormalized_vectors
-
-
-def orthogonalize(U, eps=1e-15):
-    """
-    Orthogonalizes the matrix U (d x n) using Gram-Schmidt Orthogonalization.
-    If the columns of U are linearly dependent with rank(U) = r, the last n-r columns 
-    will be 0.
-    
-    Args:
-        U (numpy.array): A d x n matrix with columns that need to be orthogonalized.
-        eps (float): Threshold value below which numbers are regarded as 0 (default=1e-15).
-    
-    Returns:
-        (numpy.array): A d x n orthogonal matrix. If the input matrix U's cols were
-            not linearly independent, then the last n-r cols are zeros.
-    
-    Examples:
-    ```python
-    >>> import numpy as np
-    >>> import gram_schmidt as gs
-    >>> gs.orthogonalize(np.array([[10., 3.], [7., 8.]]))
-    array([[ 0.81923192, -0.57346234],
-       [ 0.57346234,  0.81923192]])
-    >>> gs.orthogonalize(np.array([[10., 3., 4., 8.], [7., 8., 6., 1.]]))
-    array([[ 0.81923192 -0.57346234  0.          0.        ]
-       [ 0.57346234  0.81923192  0.          0.        ]])
-    ```
-    """
-    U = np.array(U)
-    n = len(U[0])
-    V = U.T # work with transpose(U) for ease
-    for i in range(n):
-        prev_basis = V[0:i]     # orthonormal basis before V[i]
-        coeff_vec = np.dot(prev_basis, V[i].T)  # each entry is np.dot(V[j], V[i]) for all j < i
-        V[i] -= np.dot(coeff_vec, prev_basis).T # subtract projections of V[i] onto already determined basis V[0:i]
-        if la.norm(V[i]) < eps:
-            V[i][V[i] < eps] = 0.   # set the small entries to 0
-        else:
-            V[i] /= la.norm(V[i])
-    return V.T
+#     Examples:
+#     ```python
+#     >>> import numpy as np
+#     >>> import gram_schmidt as gs
+#     >>> gs.orthogonalize(np.array([[10., 3.], [7., 8.]]))
+#     array([[ 0.81923192, -0.57346234],
+#        [ 0.57346234,  0.81923192]])
+#     >>> gs.orthogonalize(np.array([[10., 3., 4., 8.], [7., 8., 6., 1.]]))
+#     array([[ 0.81923192 -0.57346234  0.          0.        ]
+#        [ 0.57346234  0.81923192  0.          0.        ]])
+#     ```
+#     """
+#     U = np.array(U)
+#     n = len(U[0])
+#     V = U.T # work with transpose(U) for ease
+#     for i in range(n):
+#         prev_basis = V[0:i]     # orthonormal basis before V[i]
+#         coeff_vec = np.dot(prev_basis, V[i].T)  # each entry is np.dot(V[j], V[i]) for all j < i
+#         V[i] -= np.dot(coeff_vec, prev_basis).T # subtract projections of V[i] onto already determined basis V[0:i]
+#         if np.linalg.la.norm(V[i]) < eps:
+#             V[i][V[i] < eps] = 0.   # set the small entries to 0
+#         else:
+#             V[i] /= np.linalg.la.norm(V[i])
+#     return V.T

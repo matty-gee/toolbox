@@ -1,5 +1,4 @@
 import time
-import random
 import pandas as pd
 import numpy as np
 
@@ -9,19 +8,6 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import GridSearchCV, LeaveOneOut, StratifiedKFold, StratifiedShuffleSplit
-
-# diff classifiers
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.naive_bayes import GaussianNB
-from sklearn.gaussian_process import GaussianProcessClassifier
-from sklearn.gaussian_process.kernels import RBF
-from sklearn.linear_model import LogisticRegression, SGDClassifier
-from sklearn.svm import SVC, LinearSVC
-from sklearn.neural_network import MLPClassifier
-from sklearn.tree import DecisionTreeClassifier
-from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier, GradientBoostingClassifier
-from sklearn.discriminant_analysis import QuadraticDiscriminantAnalysis
-from sklearn.dummy import DummyClassifier
 
 
 class ClassifierGridSearch(object):

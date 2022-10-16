@@ -20,11 +20,14 @@ import matplotlib.pyplot as plt
 # [member[0] for member in list(getmembers(pycircstat, isfunction))] # get all functions within a module
 
 ##################################################################
-## Private functions from astropy
+## Private functions
 ##################################################################
 
 def _components(data, p=1, phi=0.0, axis=None, weights=None):
-    ''' computing the generalized rectangular components of the circular data'''
+    ''' 
+        computing the generalized rectangular components of the circular data
+        [from astropy]
+    '''
 
     if weights is None:
         weights = np.ones((1,))
@@ -40,7 +43,10 @@ def _components(data, p=1, phi=0.0, axis=None, weights=None):
 
 
 def _angle(data, p=1, phi=0.0, axis=None, weights=None):
-    ''' computing the generalized sample mean angle'''
+    ''' 
+        computing the generalized sample mean angle
+        [from astropy]
+    '''
     
     C, S = _components(data, p, phi, axis, weights)
 
@@ -55,7 +61,10 @@ def _angle(data, p=1, phi=0.0, axis=None, weights=None):
 
 
 def _length(data, p=1, phi=0.0, axis=None, weights=None):
-    ''' computing the generalized sample length '''
+    ''' 
+        computing the generalized sample length 
+        [from astropy]
+    '''
     C, S = _components(data, p, phi, axis, weights)
     return np.hypot(S, C)
 
@@ -66,22 +75,15 @@ def _corr(x, y, axis=0):
                   (y - y.mean(axis=axis, keepdims=True)), axis=axis) \
             / np.std(x, axis=axis) / np.std(y, axis=axis) / x.shape[axis]
 
+
+def _coincident_vectors(u, v):
+    ''' Checks if vectors (u & v) are the same or scalar multiples of each other'''
+    return np.dot(u, v) * np.dot(u, v) == np.dot(u, u) * np.dot(v, v)
+
+
 ##################################################################
 ## Vectors  
 ################################################################## 
-
-# TODO: need to check these more in depth:
-def map_360_to_180(degs_360):
-    '''
-    '''
-    degs_180 = degs_360.copy()
-    degs_180[degs_180 > 180] = degs_180[degs_180 > 180] - 360
-    return degs_180
-    
-
-def map_180_to_360(degs_180):
-    return degs_180 % 360
-
 
 def l2_norm(v):
     ''' 
@@ -102,22 +104,38 @@ def l1_norm(v):
 
 
 def l1_normalize(v):
-    ''' 
-        Returns l1 normalized vector 
-    '''
+    ''' Returns l1 normalized vector '''
     return v / l2_norm(v)
 
 
 def l2_normalize(v):
-    ''' 
-        Returns l2 normalized vector with length of 1 (aka unit vector) 
-    '''
+    ''' Returns l2 normalized vector with length of 1 (aka unit vector) '''
     return v / l2_norm(v)
 
 
-def coincident_vectors(u, v):
-    ''' Checks if vectors (u & v) are the same or scalar multiples of each other'''
-    return np.dot(u, v) * np.dot(u, v) == np.dot(u, u) * np.dot(v, v)
+def circ_vectors(theta, r):
+    ''' 
+        returns x & y components and unit vector values
+    '''        
+    theta = theta.astype(float)
+    xy_comp = np.array([r*np.cos(theta), r*np.sin(theta)]).T
+    xy_unit = np.array([np.cos(theta), np.sin(theta)]).T
+    return xy_comp, xy_unit
+
+
+def angle_to_circle(theta, ori=[0,0], radius=3):
+    '''
+        project angles to circle perimeter
+        can improve clustering of angles - makes them comparable by distance
+        
+        theta : float
+            angle in radians
+        ori : tuple
+            origin [x,y]
+    '''
+    circ_x = ori[0] + radius + np.cos(theta)
+    circ_y = ori[1] + radius + np.sin(theta)
+    return np.array([circ_x, circ_y]).T
 
 
 def angle_between_vectors(u, v, direction=None, verbose=False):
@@ -163,7 +181,7 @@ def angle_between_vectors(u, v, direction=None, verbose=False):
 
     # if same vectors (or scalar multiples of each other) being compared, no angle between (0 degrees)
     # -- b/c 0-360 degrees, direction matters: make sure the signs are the same too
-    elif (coincident_vectors(u, v)) & all(np.sign(u) == np.sign(v)):
+    elif (_coincident_vectors(u, v)) & all(np.sign(u) == np.sign(v)):
         if verbose: print(u, v, 'same vectors, no angle in between')
         rad = 0 # 0 degrees == 360 degrees == 2*pi radians 
 
@@ -267,44 +285,6 @@ def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=Fal
 
 def cosine_distance(u, v=None):
     ''' 
-        cosine distance of two vectors u & v = 1 - ((u . v) / (||u|| . ||v||))
-        to change origin, subtract new origin coordinates from vector(s)
-    '''
-    return pairwise_distances(u, v, metric='cosine')
-
-
-def cosine_similarity(u, v=None):
-    ''' 
-        cosine similarity of two vectors u & v = (u . v) / (||u|| . ||v||)
-        to change origin, subtract new origin coordinates from vector(s
-    '''
-    return 1 - pairwise_distances(u, v, metric='cosine')
-
-
-def angular_distance(u, v=None):
-    ''' 
-        angular distance between two vectors = theta/pi
-        distance metric: bounded from 0 & 2
-        to change origin, subtract new origin coordinates from vector(s
-    '''
-    return np.arccos(cosine_similarity(u, v))/np.pi
-
-
-def angular_similarity(u, v=None):
-    ''' 
-        angular similarity between two vectors = 1 - (theta/pi)
-        similarity metric: bounded from -1 to 1
-        to change origin, subtract new origin coordinates from vectors
-    '''
-    return 1 - np.arccos(cosine_similarity(u, v))/np.pi
-
-# cosine similarity is from 0-180 degrees
-# if 2 vectors of 0,0 --> orthogonal... doesnt make sense
-# if 2 vectors of 1,0 or 0,1 --> 0 degrees... makes sense
-# np.rad2deg(np.arccos(pairwise_cosine_similarity(np.array([[0,0], [0,0]]))))
-
-def cosine_distance(u, v=None):
-    ''' 
         cosine distance of (u, v) = 1 - (dot(u,v) / dot(l2_norm(u), l2_norm(v)))
         returns similarity measure [0,2]
     '''
@@ -314,8 +294,9 @@ def cosine_distance(u, v=None):
 def cosine_similarity(u, v=None):
     ''' 
         cosine similarity of (u, v) = dot(u,v) / dot(l2_norm(u), l2_norm(v))
-        returns similarity measure [-1,1]
+        returns similarity measure [-1,1], equivalent to [0 degrees,18 0degrees]
         maybe issue: small angles tend to get very similar values(https://math.stackexchange.com/questions/2874940/cosine-similarity-vs-angular-distance)
+
     '''
     return 1 - pairwise_distances(u, v, metric='cosine')
 
@@ -347,28 +328,10 @@ def polar_coordinates(u, v=None):
     theta = angle_between_vectors(u, v, direction=False)
     return r, theta
 
-# TODO: CHECK THIS!
-def angles_counterclockwise(u, v=None):
-    '''
-        returns angle difference 0-360, counterclockwise
-        can be:
-        - an array against an arbitrary origin, pairwise 
-        - an array against itself, pairwise
-        - or two arrays, pairwise 
-        outputs in radians
-    '''
-    if v is None: v = u
-    angle_matrix = np.zeros((len(u), len(v)))
-    for i, xy1 in enumerate(u): 
-        for j, xy2 in enumerate(v): # can shorten this by not doubling the cmputations...
-            angle_matrix[i, j] = np.arctan2(xy1[1]-xy2[1], xy1[0]-xy2[0]) # expects: y,x 
-            angle_matrix[j, i] = angle_matrix[i, j]
-    return angle_matrix
 
-
-def binary_distances(binary_data, metric='jaccard'):
+def binary_distances(arr, metric='jaccard'):
     ''' returns binary distances '''
-    return squareform(pdist(binary_data, metric=metric))
+    return squareform(pdist(arr, metric=metric))
 
 
 def shape_similarity(coords, checkRotation=False, rotations=None):
@@ -440,31 +403,33 @@ def shape_overlap(coords):
     return overlap
 
 ##################################################################
-## Angle descriptive statistics 
+## Statistics 
 ##################################################################
 
-circ_mean     = pycircstat.mean
-circ_confmean = pycircstat.mean_ci_limits
-circ_median   = pycircstat.median
-
-# not sure of the difference between "circular" & "angular" standard deviation
+# TODO: not sure of the difference between "circular" & "angular" standard deviation
 # astropy.stats.circstd gives same answer as pycircstat.astd, NOT pycircstat's allegeldy "circular" std function
 # but scipy.stats.circstd does give the same answer as pycircstat.std
 
+# descriptive
+circ_mean     = pycircstat.mean
+circ_confmean = pycircstat.mean_ci_limits
+circ_median   = pycircstat.median
 circ_cstd     = pycircstat.std # "circular"
 circ_cvar     = pycircstat.var 
 circ_astd     = pycircstat.astd # "angular"
 circ_avar     = pycircstat.avar 
-
 circ_cluster  = pycircstat.clustering.AggCluster1D
 circ_skewness = pycircstat.skewness
 circ_kurtosis = pycircstat.kurtosis
 circ_pdiff    = pycircstat.pairwise_cdiff
 circ_r        = pycircstat.resultant_vector_length
 
-##################################################################
-## Distributional tests
-##################################################################
+# distributional tests
+circ_medtest = pycircstat.medtest # only p-value
+circ_hktest  = pycircstat.hktest
+circ_raotest = pycircstat.raospacing
+circ_wwtest  = pycircstat.watson_williams # anova
+
 
 def circ_rtest(angles, axis=None, weights=None):
     """ 
@@ -599,10 +564,6 @@ def circ_symtest(angles, axis=None):
 
     return [T, pval]
 
-circ_medtest = pycircstat.medtest # only p-value
-circ_hktest  = pycircstat.hktest
-circ_raotest = pycircstat.raospacing
-circ_wwtest  = pycircstat.watson_williams # anova
 
 ##################################################################
 ## Correlations & regressions
@@ -644,7 +605,7 @@ def circ_corrcc(angles1, angles2):
 
 def circ_corrcc_matrix(df_deg):
     '''
-    [[TO DO: IS SLOW]]
+    TODO: speed up
     computes circular correlations between columns of dataframe 
     
     -input-
@@ -884,28 +845,6 @@ class circ_circ_regression(BaseRegressor):
 ##################################################################
 ### Plotting
 ##################################################################
-
-def angle_to_point_on_circle(a, origin_xy=[0,0], radius=3):
-    '''
-        project angles to circle perimeter
-        can improve clustering of angles - makes them comparable by distance
-        a: angle in degrees
-    '''
-    x = origin_xy[0] + radius + np.cos(a)
-    y = origin_xy[1] + radius + np.sin(a)
-    return np.array([x,y]).T
-
-
-def circ_vectors(a, r):
-    '''
-        a=angles in degrees, r=distances
-        returns x & y components and unit vector values
-    '''        
-    a_rad = np.deg2rad(a.astype(float))  
-    xy_comp = np.array([r*np.cos(a_rad), r*np.sin(a_rad)]).T
-    xy_unit = np.array([np.cos(a_rad), np.sin(a_rad)]).T
-    return xy_comp, xy_unit
-
 
 def vector_plot(ax, xy_comp, xy_unit, cluster_ids=None):
     '''

@@ -1,38 +1,41 @@
 import pandas as pd
-from six.moves import cPickle as pickle 
+from six.moves import cPickle 
 import json
-from json import JSONEncoder
 from xlsx2csv import Xlsx2csv
+from io import StringIO
 
-def pickle_file(file_, filename_):
-    with open(filename_, 'wb') as f:
-        pickle.dump(file_, f)
+
+def pickle_file(data, filename):
+    with open(filename, 'wb') as f:
+        cPickle.dump(data, f)
     f.close()
 
 
-def load_pickle(filename_):
-    with open(filename_, 'rb') as f:
-        ret_file = pickle.load(f)
-    return ret_file
+def load_pickle(filename):
+    with open(filename, 'rb') as f:
+        data = cPickle.load(f)
+    return data
 
 
 def load_json(filename):
     with open(filename, 'r') as f:
-        return json.load(f)
+        data = json.load(f)
+    return data
 
 
 def save_json(data, filename):
     with open(filename, 'w') as f:
         json.dump(data, f, cls=json_encoder)
+    f.close()
 
 
-class json_encoder(JSONEncoder):
+class json_encoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
         if isinstance(obj, pd.DataFrame):
             return obj.to_json()
-        return JSONEncoder.default(self, obj)
+        return json.JSONEncoder.default(self, obj)
 
 
 def read_excel(path: str, sheet_name=0, index_col=None) -> pd.DataFrame:

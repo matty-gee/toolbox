@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-
-'''
-    By Matthew Schafer, 2022
-    Functions that make pattern analyses easier
-'''
-
-# maybe have to specify where these are...
-# from generic import symm_mat_to_ut_vec
-# from masking import make_nifti, get_nifti_info
-
 import time
 import numpy as np
 
@@ -28,6 +17,9 @@ from sklearn.svm import SVC
 from sklearn.linear_model import LinearRegression, HuberRegressor
 from sklearn.model_selection import StratifiedShuffleSplit, cross_val_score
 
+########################################################################################################
+## RDMs
+########################################################################################################
 
 def get_rdm(betas):
     '''
@@ -54,7 +46,8 @@ def get_rdm(betas):
 ## ROI-based mvpa 
 ########################################################################################################
 
-def fit_huber(X, y, epsilon = 1.75, alpha = 0.0001):
+# maybe can move this to regression
+def fit_huber(X, y, epsilon=1.75, alpha=0.0001):
     '''
         Run huber regression 
         Huber regressors minimizes squared loss for non-outliers and absolute loss for outliers
@@ -164,74 +157,6 @@ def bin_distances(distances, n_bins=2, encode='ordinal', strategy='quantile'):
     mean_dists = np.array([np.mean(distances[bin_ixs==b]) for b in range(n_bins)])
     
     return bin_ixs, mean_dists
-
-
-def fit_clf(clf, X, y, cv_splits=6, scale=True):
-
-    # initialize 
-
-    eval_df = pd.DataFrame()
-    pred_dfs = []
-    
-    # cross-validator - maybe just pass an iterator
-    if isinstance(cv_splits, int):
-        # stratified to balance each fold by class (i.e., character) 
-        folds = StratifiedKFold(n_splits=cv_splits, random_state=76, shuffle=True).split(X, y)
-    elif (isinstance(cv_splits, str)) & (cv_splits=='loo'): 
-        folds = LeaveOneOut().split(X, y)
-    else:
-        folds = cv_splits
-
-    # get rid of voxels with 0/nan values
-    X = VarianceThreshold().fit_transform(X) 
-    
-    # cross-validated decoding
-    for k, (train, test) in enumerate(folds):
-
-        # if standardizing, fit a scaling model on training folds
-        if scale: 
-            scaler  = StandardScaler().fit(X[train])     
-            X_train = scaler.transform(X[train])
-            X_test  = scaler.transform(X[test])
-        else:
-            X_train = X[train]
-            X_test  = X[test]
-
-        # fit classifier on training folds
-        decoder = clone(clf)
-        decoder.fit(X_train, y[train]) 
-
-        # predict on held out fold
-        y_preds = decoder.predict(X_test)
-        pred_df = pd.DataFrame(np.vstack([test, y_preds, y[test], (y_preds == y[test]) * 1]).T,
-                            columns=['ix0', 'pred', 'actual', 'correct'])
-        pred_df.insert(0, 'split', k)
-
-        # evaluate performance
-        eval_df.loc[k, 'split'] = k
-        eval_df.loc[k, 'acc'] = decoder.score(X_test, y[test])
-        eval_df.loc[k, 'balanced_acc'] = balanced_accuracy_score(y[test], y_preds)
-        eval_df.loc[k, 'f1'] = f1_score(y[test], y_preds, average='weighted')
-        eval_df.loc[k, 'phi'] = matthews_corrcoef(y[test], y_preds)
-        eval_df.loc[k, 'dice'] = sp.spatial.distance.dice(y[test], y_preds)
-        
-        # get probabilities
-        if hasattr(decoder, 'predict_proba'): 
-            y_probas = decoder.predict_proba(X_test)
-            for p, y_probas_ in enumerate(y_probas.T):
-                pred_df['probas_class' + str(p)] = y_probas_
-
-        pred_dfs.append(pred_df)
-    
-    pred_df = pd.concat(pred_dfs)
-    pred_df.reset_index(inplace=True, drop=True)
-
-    # output dict
-    clf_dict = {'cv_splits': cv_splits, 
-                'preds': pred_df,
-                'eval': eval_df} 
-
-    return clf_dict
 
 ########################################################################################################
 ## Searchlights
@@ -490,6 +415,9 @@ def run_sl(images, masks, sl_kernel, bcvar=None, other_masks=None, shape='ball',
     return sl_result
 
 ########################################################################################################
+## DEV
+########################################################################################################
+
 # character cv iterator: train on 4, test on 1
 
 # role_num = decision_details['role_num'].reset_index(drop=True)

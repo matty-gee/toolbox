@@ -1,11 +1,11 @@
-import seaborn as sns
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 import matplotlib.colors as mcolors
-from pylab import *
+import seaborn as sns
 sns.set(style='white')
+from pylab import *
 
-from scipy import stats
+import scipy
 
 ########################################################
 # palettes etc
@@ -51,11 +51,10 @@ def make_palette(color_list, plot=False):
     return pal
 
 ########################################################
-# should it be here or in an rsa folder? 
-# or rename it and make it more general?
+# similarity plots
 ########################################################
 
-def plot_rdm(rdm, lower_tri=False, v=(0,100), size=10, cbar=None, cbar_labels=[]):
+def plot_rdm(rdm, lower_tri=False, v=(0,100), size=10, cmap='Purples', cbar=None, cbar_labels=None):
     '''
         inputs:
             rdm: representational dissimilarity matrix 
@@ -64,7 +63,6 @@ def plot_rdm(rdm, lower_tri=False, v=(0,100), size=10, cbar=None, cbar_labels=[]
             vmax: defaults to 100, expecting a digitized rdm
             size: side size of square plot
     '''
-    # to get rid of upper half & diagonal
     if lower_tri: 
         mask = np.zeros_like(rdm)
         mask[np.triu_indices_from(mask)] = True
@@ -72,23 +70,23 @@ def plot_rdm(rdm, lower_tri=False, v=(0,100), size=10, cbar=None, cbar_labels=[]
         mask = False
         
     with sns.axes_style("white"):
-        fig, ax = plt.subplots(figsize=(size,size))
         # sns.set(font_scale=1.5)
+        fig, ax = plt.subplots(figsize=(size,size))
         ax = sns.heatmap(rdm, vmin=v[0], vmax=v[1], mask=mask,
                          xticklabels=False, yticklabels=False,
-                         cmap="Purples",
+                         cmap=cmap,
                          cbar=cbar,
                          cbar_kws={'orientation': 'horizontal','shrink': .68},
                          linewidths=2, linecolor='black',
                          square=True)
-        if cbar:
-            ax.collections[0].colorbar.outline.set(visible=True, lw=1, edgecolor="black")
-            ax.collections[0].colorbar.set_ticks([0,100])
-            if len(cbar_labels) == 0:
-                ax.collections[0].colorbar.set_ticklabels(["Similar", "Dissimilar"])
-            else:
+        if cbar is not None:
+            if cbar_labels is not None:
+                ax.collections[0].colorbar.outline.set(visible=True, lw=1, edgecolor="black")
+                ax.collections[0].colorbar.set_ticks([0,100])
                 ax.collections[0].colorbar.set_ticklabels([cbar_labels[0], cbar_labels[1]])
             # [attr for attr in dir(ax.collections[0].colorbar)] # show methods
+            else:
+                ax.collections[0].colorbar.set_ticklabels(["Similar", "Dissimilar"])
         plt.show()
     return fig
 
@@ -96,7 +94,7 @@ def plot_rdm(rdm, lower_tri=False, v=(0,100), size=10, cbar=None, cbar_labels=[]
 # create an annotated correlation matrix - TODO: improve
 ########################################################
 
-def corrfunc(x, y, xy=(0.05, 0.9), corr=stats.pearsonr, **kws):
+def corrfunc(x, y, xy=(0.05, 0.9), corr=scipy.stats.pearsonr, **kws):
     coef, p = corr(x, y)
     if p <= 0.001:  p_stars = '***'
     elif p <= 0.01: p_stars = '**'

@@ -12,7 +12,7 @@ from nilearn.image import load_img, get_data, new_img_like, math_img
 from nilearn.masking import compute_brain_mask
 
 ########################################################################################################
-## input/output
+## io
 ########################################################################################################
 
 def load_nifti(nifti_fname):  
@@ -261,4 +261,3 @@ def get_timeseries(func_img,
     timeseries = masker.fit_transform(func_img, confounds=confounds)
 
     return timeseries.T, masker
-

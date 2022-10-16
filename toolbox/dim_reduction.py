@@ -4,24 +4,14 @@ import numpy as np
 import scipy
 from scipy.stats import chi2, pearsonr
 from factor_analyzer import ConfirmatoryFactorAnalyzer, ModelSpecificationParser
-
 import matplotlib.pyplot as plt
 import seaborn as sns
-
-# from generic import *
-# from statistics import *
-# from matrices import *
-# from model_selection import * 
-
-def get_unique(seq):
-    seen = set()
-    seen_add = seen.add
-    return [x for x in seq if not (x in seen or seen_add(x))]
+from utils import get_unique
 
 
 class DimReduction(object):
 
-    '''[By Matthew Schafer, github: @matty-gee; 2020ish]'''
+    '''[By Matthew Schafer; github: @matty-gee; 2020ish]'''
         
     def __init__(self, algorithm):
         '''
@@ -44,7 +34,7 @@ class DimReduction(object):
         self.preprocessed = False
         
     ########################################################################
-    ## PREPROCESSING, PRETESTING ETC ##
+    ## Preprocessing
     ########################################################################
     
     def preprocess(self, df): 
@@ -182,7 +172,7 @@ class DimReduction(object):
             print(f'- Barletts test of sphericity: p={np.round(p_val,4)} - reconsider fa/pca')
             
     ########################################################################
-    ## UNSUPERVISED DIMENSIONALITY REDUCTION ##
+    ## Unsupervised reduction
     ########################################################################
     
     def fit_transform(self, df, num_comps=3, corr_matrix=None, rotation=None, cfa_dict=None):
@@ -198,12 +188,9 @@ class DimReduction(object):
         self.rotation = rotation
         self.preprocess(df)
         
-        if self.alg == 'efa':
-            self.efa()
-        elif self.alg == 'pca':
-            self.pca()
-        elif self.alg == 'cfa':
-            self.cfa(cfa_dict)
+        if self.alg == 'efa':   self.efa()
+        elif self.alg == 'pca': self.pca()
+        elif self.alg == 'cfa': self.cfa(cfa_dict)
         self.fitted = True
     
     def pca(self): 
@@ -353,37 +340,37 @@ class DimReduction(object):
         self.loadings = self.model.loadings_ 
         self.implied_cov = self.model.get_model_implied_cov()
 
-    def ica(self):
-        """
-            Independent Components Analysis: 
-            Goal: separate putative source signals from a mixed, observed signal (separate data) 
-                assumes: observed data are a linear combo of independent components
-                notes:
-                - ICA excels at problems PCA will often fail at if the sources are non-gaussian
-        """
-        from sklearn.decomposition import FastICA
+    # def ica(self):
+    #     """
+    #         Independent Components Analysis: 
+    #         Goal: separate putative source signals from a mixed, observed signal (separate data) 
+    #             assumes: observed data are a linear combo of independent components
+    #             notes:
+    #             - ICA excels at problems PCA will often fail at if the sources are non-gaussian
+    #     """
+    #     from sklearn.decomposition import FastICA
         
-        # create ica object
-        ica = FastICA(n_components=self.num_comps, random_state=0)
+    #     # create ica object
+    #     ica = FastICA(n_components=self.num_comps, random_state=0)
         
-        # fit model & apply unmixing matrix to separate sources
-        self.X_reduced = ica.fit_transform(self.X) # reconstructed signals
-        self.mixing_matrix = ica.mixing_ 
+    #     # fit model & apply unmixing matrix to separate sources
+    #     self.X_reduced = ica.fit_transform(self.X) # reconstructed signals
+    #     self.mixing_matrix = ica.mixing_ 
         
-        # reconstruct - how much info is lost?
-        self.X_restored = ica.inverse_transform(self.X_reduced)
+    #     # reconstruct - how much info is lost?
+    #     self.X_restored = ica.inverse_transform(self.X_reduced)
     
-    def mca(self):
-        """
-            Multiple Correspondence Analysis for categorical data
-            try this instead: https://github.com/MaxHalford/prince#multiple-correspondence-analysis-mca
-        """
-        import prince
-        mca = prince.MCA()
-        mca.fit(X)
-        mca.transform(X)        
+    # def mca(self):
+    #     """
+    #         Multiple Correspondence Analysis for categorical data
+    #         try this instead: https://github.com/MaxHalford/prince#multiple-correspondence-analysis-mca
+    #     """
+    #     import prince
+    #     mca = prince.MCA()
+    #     mca.fit(X)
+    #     mca.transform(X)        
 
-    def mds(self): 
+    # def mds(self): 
         """
             Multidimensional Scaling
             Goal: reduce dimensions while preserving distance between data points
@@ -407,7 +394,7 @@ class DimReduction(object):
         self.mds_plot(results, num_comp)
 
     ########################################################################
-    ## PLOTTING ETC ##
+    ## Plotting
     ########################################################################
 
     def get_mean_loadings(self):

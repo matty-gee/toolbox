@@ -1,21 +1,14 @@
 import numpy as np
 import pandas as pd
 import statsmodels.stats.multitest as multi
-
 import scipy
-from scipy.stats import wilcoxon, spearmanr, pearsonr, kendalltau, rankdata
-from scipy.stats import zscore as zscore
-from scipy.special import betainc
-
-from sklearn.linear_model import LinearRegression, HuberRegressor
 
 ##################################################################
 # MCC
 ##################################################################
 
-import statsmodels.stats.multitest as smt
 def correct_pvals(pvals, method='fdr_bh'):
-    return smt.multipletests(pvals, alpha=0.01, method=method)[1]
+    return multi.multipletests(pvals, alpha=0.01, method=method)[1]
 
 ##################################################################
 ## CIs

@@ -146,7 +146,6 @@ def compute_region_to_voxel_fc(sub_id, img_fname, out_dir, roi_type='roi', mask=
 ## network analysis
 ########################################################################################################
 
-
 class GraphProperties:
 
     '''
@@ -259,12 +258,11 @@ def compute_graph_properties(fc_fname, atlas='HO', thresh=0.95, weighted=False):
     else:        out_fname = f'{out_fname}_unweighted_graph.pkl'
     pickle_file(graph_data, out_fname)
 
-
 ########################################################################################################
-## plotting etc...
+## DEV
 ########################################################################################################
 
-# # getting mni coords from atlas...
+## getting mni coords from atlas...
 # coords_df = []
 # for atlas in ['sub','cortl']:
 
