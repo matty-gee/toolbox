@@ -8,6 +8,7 @@ import pandas  as pd
 
 from sklearn.metrics import pairwise_distances
 
+
 def bootstrap_matrix(matrix, random_state=None):
     ''' shuffles similarity matrix based on recommendation by Chen et al., 2016 '''
     s = skl.utils.check_random_state(random_state)
@@ -124,11 +125,11 @@ def ut_mat_to_symm_mat(mat):
     return mat
 
 
-def ut_vec_to_symm_mat(vec):
+def ut_vec_to_symm_mat(ut_vec):
     '''
         go from vectorized/flattened upper tri (to upper tri matrix) to symmetrical matrix
     '''
-    ut_mat   = ut_vec_to_ut_mat(vec)
+    ut_mat   = ut_vec_to_ut_mat(ut_vec)
     symm_mat = ut_mat_to_symm_mat(ut_mat)
     return symm_mat
 
