@@ -1,7 +1,5 @@
 # see: https://gist.github.com/octocat/9257657
 
-*nilearn_cache
-*ipynb_checkpoints
 
 # Compiled source #
 ###################
@@ -44,4 +42,6 @@ Thumbs.db
 # python generated files #
 ######################
 *__pycache__
+*nilearn_cache
+*ipynb_checkpoints
 

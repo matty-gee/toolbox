@@ -8,6 +8,11 @@ from io import StringIO
 from pathlib import Path
 from itertools import groupby
 
+
+########################################################################################################
+# checking 
+########################################################################################################
+
 def all_equal(iterable):
     ''' check if all items in a list are identical '''
     g = groupby(iterable)
@@ -17,6 +22,18 @@ def all_equal(iterable):
 def all_equal_arrays(L):
     ''' check if difference in List L along axis of stacking == 0  '''
     return (np.diff(np.vstack(L).reshape(len(L), -1), axis=0) == 0).all()
+
+
+def is_numeric(input_str):
+    ''' check if all characters in a string are numeric '''
+    return all(char.isdigit() for char in input_str)
+
+########################################################################################################
+# lists & arrays
+########################################################################################################
+
+def flatten_nested_lists(L):
+    return [i for sL in L for i in sL]
 
 ########################################################################################################
 # text parsing
@@ -59,7 +76,7 @@ def reset_sort(df):
 # combos, permutations etc...
 ########################################################################################################
 
-def combos(arr, k):
+def combos(arr, k=2):
     """ 
         arr: np.array to get combos from
         r: num of combos

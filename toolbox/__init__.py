@@ -1,5 +1,4 @@
-# to make importing easier
-
+# if want to import all the individual functions
 # from .circ_stats import *
 # from .classification import *
 # from .dim_reduction import *

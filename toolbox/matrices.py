@@ -105,7 +105,7 @@ def make_symm_mat_mask(orig_ixs, size=(63)):
 
 
 def ut_vec_pw_dist(x, metric='euclidean'):
-    if (isinstance(x, pd.Series)) or (isinstance(x, pd.DataFrame)): x = x.values
+    x = np.array(x)
     if x.ndim == 1:  x = x.reshape(-1,1)
     return symm_mat_to_ut_vec(pairwise_distances(x, metric=metric))
 

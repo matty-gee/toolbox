@@ -4,7 +4,6 @@ import json
 from json import JSONEncoder
 from xlsx2csv import Xlsx2csv
 
-
 def pickle_file(file_, filename_):
     with open(filename_, 'wb') as f:
         pickle.dump(file_, f)
