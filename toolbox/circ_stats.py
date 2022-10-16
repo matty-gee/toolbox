@@ -1,7 +1,7 @@
 '''
 Functions related to circular statistics and other related problems - e.g., angles, distances, trigonometry.
 Note: all functions that accept angles expect radians
-Adapted/copied code from astropy & Matlab's circstat [see docstrings]
+Wrapped/adapted code from astropy & Matlab's circstat [see docstrings]
 '''
 
 import numpy as np
@@ -9,12 +9,10 @@ import pandas as pd
 import scipy
 from scipy.spatial.distance import pdist, squareform
 from sklearn.metrics import pairwise_distances
-
 from turtle import degrees
 import pycircstat
 import astropy.stats
 from shapely.geometry import Polygon
-
 import matplotlib.pyplot as plt
 
 # [member[0] for member in list(getmembers(pycircstat, isfunction))] # get all functions within a module

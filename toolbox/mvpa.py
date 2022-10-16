@@ -43,7 +43,7 @@ def get_rdm(betas):
     return rdm
 
 ########################################################################################################
-## ROI-based mvpa 
+## ROI-based 
 ########################################################################################################
 
 # maybe can move this to regression
@@ -339,7 +339,7 @@ def sl_svm_group(data, sl_mask, myrad, bcvar):
     return acc.mean()
 
 
-def run_sl(images, masks, sl_kernel, bcvar=None, other_masks=None, shape='ball', radius=3, min_prop=0.10, max_blk_edge=10):
+def run_sl(images, masks, sl_kernel, bcvar=None, other_masks=None, shape='ball', radius=3, min_prop=0.10, num_sls=10):
     '''
         Run brainiak searchlight, save nifti 
 
@@ -366,7 +366,7 @@ def run_sl(images, masks, sl_kernel, bcvar=None, other_masks=None, shape='ball',
         min_prop : float (optional)
             Minimum proportion of voxels that need to be 'active' to have sl computed
             Default: 0.10
-        max_blk_edge : int (optional)
+        num_sls : int (optional)
             Number of sls to run concurrently
             Default: 10
 
@@ -405,7 +405,7 @@ def run_sl(images, masks, sl_kernel, bcvar=None, other_masks=None, shape='ball',
     t1 = time.time()
     sl = brainiak.searchlight.searchlight.Searchlight(sl_rad=radius, shape=sl_shapes[shape], 
                                                       min_active_voxels_proportion=min_prop,
-                                                      max_blk_edge=max_blk_edge) 
+                                                      max_blk_edge=num_sls) 
     sl.distribute([data], mask)
     if bcvar is not None: sl.broadcast(bcvar) # broadcast data needed for all sls       
     sl_result = sl.run_searchlight(sl_kernel, pool_size=1) 

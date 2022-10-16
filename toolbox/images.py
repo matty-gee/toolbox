@@ -1,12 +1,10 @@
 import glob
 from os.path import exists
-
 import numpy   as np 
 import pandas  as pd
 import scipy   as sp
 import nibabel as nib
 import nilearn as nil
-
 from nilearn.input_data import NiftiLabelsMasker, NiftiMasker, NiftiSpheresMasker, NiftiMapsMasker
 from nilearn.image import load_img, get_data, new_img_like, math_img
 from nilearn.masking import compute_brain_mask
