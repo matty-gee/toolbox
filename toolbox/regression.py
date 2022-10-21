@@ -8,9 +8,9 @@ from sklearn.linear_model import LinearRegression, PoissonRegressor, HuberRegres
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-##############################################################
-## Standard regressions
-##############################################################
+#-------------------------------------------------------------------------------------------
+# Standard regressions
+#-------------------------------------------------------------------------------------------
 
 def run_ols(X_labels_, y_label_, df_, covariates=None, n_splits=None, plot=False):
     '''
@@ -169,9 +169,9 @@ def run_ols(X_labels_, y_label_, df_, covariates=None, n_splits=None, plot=False
                 
         return  output_df, ols_obj
         
-##############################################################
-## Non-standard/non-linear
-##############################################################
+#-------------------------------------------------------------------------------------------
+# Non-standard/non-linear
+#-------------------------------------------------------------------------------------------
 
 class ExponentialRegression:
     '''
@@ -247,9 +247,9 @@ class PolynomialRegression:
         
         return predictions
        
-##############################################################
-## Performance metrics & plots
-##############################################################
+#-------------------------------------------------------------------------------------------
+# Performance metrics & plots
+#-------------------------------------------------------------------------------------------
 
 def root_squared_error(y, predicted):
     rss = np.sum((y - predicted) ** 2)
@@ -429,9 +429,9 @@ def regression_jointplots(xs, y, data, hue=None, dots_color='blue', run_ols=Fals
     
     return fig
 
-##############################################################
-## Orthogonalization - CAUTION: all trying to use gram schmidt but may give diff results? needs more testing
-##############################################################
+#-------------------------------------------------------------------------------------------
+# Orthogonalization - CAUTION: all trying to use gram schmidt but may give diff results? needs more testing
+#-------------------------------------------------------------------------------------------
 
 # def gram_schmidt(X):
 #     ''' 

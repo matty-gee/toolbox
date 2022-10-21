@@ -9,9 +9,9 @@ from nilearn.input_data import NiftiLabelsMasker, NiftiMasker, NiftiSpheresMaske
 from nilearn.image import load_img, get_data, new_img_like, math_img
 from nilearn.masking import compute_brain_mask
 
-########################################################################################################
-## io
-########################################################################################################
+#---------------------------------------------------------------------------------------------------------
+# io
+#---------------------------------------------------------------------------------------------------------
 
 def load_nifti(nifti_fname):  
     return nib.load(nifti_fname)
@@ -77,9 +77,9 @@ def save_as_nifti(brain_data, output_name, affine_mat, vox_size):
     else:                    hdr.set_zooms((vox_size[0], vox_size[1], vox_size[2]))
     nib.save(brain_nii, output_name)  # Save the volume  
 
-########################################################################################################
-## masking
-########################################################################################################
+#---------------------------------------------------------------------------------------------------------
+# masking
+#---------------------------------------------------------------------------------------------------------
 
 def get_incl_gm_mask(func_img, gm_thresh=0.25):
     ''' returns a gm mask x included voxel mask for func image '''
@@ -259,3 +259,13 @@ def get_timeseries(func_img,
     timeseries = masker.fit_transform(func_img, confounds=confounds)
 
     return timeseries.T, masker
+
+#---------------------------------------------------------------------------------------------------------
+# operations
+#---------------------------------------------------------------------------------------------------------
+
+def resample_nifti(nifti_path, target_affine, target_shape, interpolation='nearest'):
+
+    nii = nib.load(nifti_path)
+    resampled_nii = nil.image.resample_img(nii, target_affine=target_affine, target_shape=target_shape, interpolation=interpolation)    
+    return resampled_nii    

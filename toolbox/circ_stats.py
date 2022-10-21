@@ -6,9 +6,10 @@ Wrapped/adapted code from astropy & Matlab's circstat [see docstrings]
 
 import numpy as np
 import pandas as pd
-import scipy
+import scipy as sp
+import sklearn as sk
+
 from scipy.spatial.distance import pdist, squareform
-from sklearn.metrics import pairwise_distances
 from turtle import degrees
 import pycircstat
 import astropy.stats
@@ -17,9 +18,9 @@ import matplotlib.pyplot as plt
 
 # [member[0] for member in list(getmembers(pycircstat, isfunction))] # get all functions within a module
 
-##################################################################
-## Private functions
-##################################################################
+#---------------------------------------------------------------------------------------------------------
+# Private functions
+#---------------------------------------------------------------------------------------------------------
 
 def _components(data, p=1, phi=0.0, axis=None, weights=None):
     ''' 
@@ -78,10 +79,9 @@ def _coincident_vectors(u, v):
     ''' Checks if vectors (u & v) are the same or scalar multiples of each other'''
     return np.dot(u, v) * np.dot(u, v) == np.dot(u, u) * np.dot(v, v)
 
-
-##################################################################
-## Vectors  
-################################################################## 
+#---------------------------------------------------------------------------------------------------------
+# Vectors  
+#--------------------------------------------------------------------------------------------------------- 
 
 def l2_norm(v):
     ''' 
@@ -206,7 +206,7 @@ def angle_between_vectors(u, v, direction=None, verbose=False):
     return rad
 
 
-def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=False):
+def calculate_angle(U, V=None, direction=None, force_pairwise=True, verbose=False):
     '''
         Calculate angles between n-dim vectors 
         If V == None, calculate U pairwise
@@ -224,14 +224,13 @@ def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=Fal
             None : included 180
             False : counterclockwise 360 (wont give a symmetrical matrix)
             True : clockwise 360
-        force_pairwise : optional (default=False)
             
         Returns
         -------
         numeric 
             pairwise angles in radians
 
-        [By Matthew Schafer, github: @matty-gee; 2020ish]
+        [By Matthew Schafer; github: @matty-gee; 2020ish]
     '''
     
     # # testing (10-12-22)
@@ -245,21 +244,43 @@ def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=Fal
     if U.ndim == 1: 
         U = np.expand_dims(U, 0)
         messages.append('Added a dimension to U')
+        
     if V is not None:
         if V.ndim == 1: 
             V = np.expand_dims(V, 0)
             messages.append('Added a dimension to V')
 
-    # determine output shape     
-    if V is None:
-        ret = 'pairwise'
+            
+    # determine output shape 
+    # - 1 set of vectors: pw, square, symm
+    if V is None: 
+        default = 'pairwise'
         V = U 
-    elif U.shape == V.shape:
-        ret = 'elementwise' 
+        
+    # - 2 vectors of same shape
+    # -- pw, square, non-symm
+    # -- ew, vector
+    elif U.shape == V.shape: 
+        default = 'elementwise' 
+
+    # - 2 vectors, 1 w/ length==1 & is reference
+    # -- pw, vector shape (1,u)
     elif (U.shape[0] > 1) & (V.shape[0] == 1): 
         V = np.repeat(V, len(U), 0) 
-        ret = 'single reference'  
-    messages.append(f'Calculated {ret}')
+        default = 'reference'  
+    
+    # -- pw, vector shape (v,1)
+    elif (U.shape[0] == 1) & (V.shape[0] > 1): 
+        U = np.repeat(U, len(V), 0) 
+        default = 'reference' 
+        
+    # - 2 vectors, different lengths
+    # -- pw, rectangle 
+    else: 
+        default = 'pairwise' 
+        
+    messages.append(f'Calculated {default}')
+    
     
     # calculate angles
     radians = np.zeros((U.shape[0], V.shape[0]))
@@ -267,17 +288,19 @@ def calculate_angle(U, V=None, direction=None, force_pairwise=False, verbose=Fal
         for j in range(V.shape[0]):
             radians[i, j] = angle_between_vectors(U[i,:], V[j,:], direction=direction)
 
+            
     # output
-    if ret == 'pairwise': cols = 'U'
-    else:                 cols = 'V'
+    if default == 'pairwise': cols = 'U'
+    else:                     cols = 'V'
     radians = pd.DataFrame(radians, index=[f'U{i+1:02d}' for i in range(len(U))], columns=[f'{cols}{i+1:02d}' for i in range(len(V))])
 
-    if not force_pairwise: 
-        if ret == 'single reference':
+    if not force_pairwise:
+        if default == 'reference':
             radians = radians.iloc[:,0].values
-        elif ret == 'elementwise':
+        elif default == 'elementwise':
             radians = np.diag(radians)
     if verbose: [print(m) for m in messages]
+        
     return radians
 
 
@@ -286,7 +309,7 @@ def cosine_distance(u, v=None):
         cosine distance of (u, v) = 1 - (dot(u,v) / dot(l2_norm(u), l2_norm(v)))
         returns similarity measure [0,2]
     '''
-    return pairwise_distances(u, v, metric='cosine')
+    return sk.metrics.pairwise_distances(u, v, metric='cosine')
 
 
 def cosine_similarity(u, v=None):
@@ -296,7 +319,7 @@ def cosine_similarity(u, v=None):
         maybe issue: small angles tend to get very similar values(https://math.stackexchange.com/questions/2874940/cosine-similarity-vs-angular-distance)
 
     '''
-    return 1 - pairwise_distances(u, v, metric='cosine')
+    return 1 - sk.metrics.pairwise_distances(u, v, metric='cosine')
 
 
 def angular_distance(u, v=None):
@@ -322,7 +345,7 @@ def polar_coordinates(u, v=None):
     '''
     if v is None:   v = np.array([0, 0])
     if v.ndim == 1: v = np.array(v).reshape(1,-1)
-    r     = pairwise_distances(u, v, metric='euclidean')
+    r     = sk.metrics.pairwise_distances(u, v, metric='euclidean')
     theta = angle_between_vectors(u, v, direction=False)
     return r, theta
 
@@ -389,24 +412,24 @@ def shape_overlap(coords):
     overlap = np.ones((n, n))
     for i in range(n):
         coords1   = coords[i,:,:]
-        vertices1 = scipy.spatial.ConvexHull(crd1).vertices
+        vertices1 = sp.spatial.ConvexHull(crd1).vertices
         poly1     = Polygon(coords1[vertices1])
         for j in range(n): 
             if i == j: overlap[i,j] = 1
             else:
                 coords2     = coords[j,:,:]
-                vertices2    = scipy.spatial.ConvexHull(crd2).vertices
+                vertices2    = sp.spatial.ConvexHull(crd2).vertices
                 poly2        = Polygon(coords2[vertices2])
                 overlap[i,j] = poly1.intersection(poly2).area/poly1.area
     return overlap
 
-##################################################################
-## Statistics 
-##################################################################
+#---------------------------------------------------------------------------------------------------------
+# Statistics 
+#---------------------------------------------------------------------------------------------------------
 
 # TODO: not sure of the difference between "circular" & "angular" standard deviation
 # astropy.stats.circstd gives same answer as pycircstat.astd, NOT pycircstat's allegeldy "circular" std function
-# but scipy.stats.circstd does give the same answer as pycircstat.std
+# but sp.stats.circstd does give the same answer as pycircstat.std
 
 # descriptive
 circ_mean     = pycircstat.mean
@@ -521,8 +544,8 @@ def circ_vtest(angles, mu=0.0, axis=None, weights=None):
     n = np.size(angles, axis=axis)
     R0bar = np.sum(weights * np.cos(angles - mu), axis)/np.sum(weights, axis)
     z = np.sqrt(2.0 * n) * R0bar
-    pz = scipy.stats.norm.cdf(z)
-    fz = scipy.stats.norm.pdf(z)
+    pz = sp.stats.norm.cdf(z)
+    fz = sp.stats.norm.pdf(z)
     # see reference [3]
     pval = 1 - pz + fz*((3*z - z**3)/(16.0*n) +
                            (15*z + 305*z**3 - 125*z**5 + 9*z**7)/(4608.0*n*n))
@@ -556,16 +579,16 @@ def circ_symtest(angles, axis=None):
         oshape = d.shape[1:]
         d2 = d.reshape((d.shape[0], int(np.prod(d.shape[1:]))))
         T, pval = map(lambda x: np.asarray(x).reshape(
-            oshape), zip(*[scipy.stats.wilcoxon(dd) for dd in d2.T]))
+            oshape), zip(*[sp.stats.wilcoxon(dd) for dd in d2.T]))
     else:
-        T, pval = scipy.stats.wilcoxon(d)
+        T, pval = sp.stats.wilcoxon(d)
 
     return [T, pval]
 
 
-##################################################################
-## Correlations & regressions
-##################################################################
+#---------------------------------------------------------------------------------------------------------
+# Correlations & regressions
+#---------------------------------------------------------------------------------------------------------
 
 def circ_corrcc(angles1, angles2):
     '''
@@ -594,7 +617,7 @@ def circ_corrcc(angles1, angles2):
     # avoid division by 0 (?)
     if l22 != 0:
         ts = np.sqrt((n * l20 * l02)/l22) * rho
-        pval = 2 * (1 - scipy.stats.norm.cdf(np.abs(ts)))
+        pval = 2 * (1 - sp.stats.norm.cdf(np.abs(ts)))
     else: 
         pval = np.nan
     
@@ -663,7 +686,7 @@ def circ_corrcl(angles, x, axis=None):
 
     # compute angular-linear correlation (equ. 27.47) & p-value
     rho = np.sqrt((rxc ** 2 + rxs ** 2 - 2 * rxc * rxs * rcs) / (1 - rcs ** 2))
-    pval = 1 - scipy.stats.chi2.cdf(len(angles)*rho**2, 2)
+    pval = 1 - sp.stats.chi2.cdf(len(angles)*rho**2, 2)
     return [rho, pval]
 
 
@@ -781,13 +804,13 @@ class circ_linear_regression(BaseRegressor):
 
         References: [Jammalamadaka2001]_
         """
-        w, psw = scipy.stats.shapiro(y)
+        w, psw = sp.stats.shapiro(y)
         rxc, rxs, rcs = np.corrcoef(y, np.cos(angles))[0,1], np.corrcoef(y, np.sin(angles))[0,1], \
                         np.corrcoef(np.cos(angles), np.sin(angles))[0,1]
         n = len(angles)
         r2 = (rxc**2 + rxs**2 - 2*rxc*rxs*rcs)/(1 - rcs**2)
         f = (n-3)*r2/(1-r2)
-        p = scipy.stats.f.sf(f, 2, n-3)
+        p = sp.stats.f.sf(f, 2, n-3)
 
         df = pd.DataFrame(dict(
             test = ['Shapiro-Wilk','Liddell-Ord'],
@@ -840,9 +863,9 @@ class circ_circ_regression(BaseRegressor):
         angle_preds = np.arctan2(preds[:,1], preds[:,0]) # angularize the linear predictions
         return angle_preds
 
-##################################################################
-### Plotting
-##################################################################
+#---------------------------------------------------------------------------------------------------------
+# Plotting
+#---------------------------------------------------------------------------------------------------------
 
 def vector_plot(ax, xy_comp, xy_unit, cluster_ids=None):
     '''
