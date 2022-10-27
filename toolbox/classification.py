@@ -8,6 +8,7 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import GridSearchCV, LeaveOneOut, StratifiedKFold, StratifiedShuffleSplit
+from sklearn.metrics import balanced_accuracy_score, f1_score, roc_curve, auc, roc_auc_score, matthews_corrcoef, silhouette_score
 
 
 class ClassifierGridSearch(object):
@@ -69,6 +70,18 @@ class ClassifierGridSearch(object):
         return df
 
 
+def create_pipeline(estimator, steps=[]):
+    ''' create a sklearn pipeline, with list of steps followed by estimator
+        pl.get_params().keys(): to see which parameters are available
+    '''
+    
+    pl_dict = {'scaler': StandardScaler(), 
+               'selector': VarianceThreshold(),
+               'pca': PCA(n_components = 25)}
+    
+    return Pipeline([(step, pl_dict[step]) for step in steps] + [('estimator', estimator)])
+
+
 def run_perm_clf(clf, X, y, k=10, cv=StratifiedKFold, permutations=1000):
     '''
         Run permuted classification with cross-validation
@@ -109,67 +122,66 @@ def run_perm_clf(clf, X, y, k=10, cv=StratifiedKFold, permutations=1000):
     return perm_accs
 
 
-def run_clf(clf, X, y, scale=False, cv=6):
-    '''
-        Run cross-validated classification 
+def run_clf(clf, X, y, cv=6, standardize=False):
 
-        Arguments
-        ---------
-        clf : object
-            classifier object
-        X : array or pd.DataFrame
-            X values
-        y : array or pd.Series
-            y values
-        scale : bool (optional)
-            Whether to standardize (within each fold) 
-            Default: False
-        cv : int or 'loo' or iterator (optional)
-            int : perform stratified k-fold cv
-            'loo' : perform leave one out cv
-            iterator : performn cv with specified indices
-            Default: 6
+    # TODO: accept pipelines...
+    
+    eval_df  = pd.DataFrame()
+    pred_dfs = []
 
-        Returns
-        -------
-        pd.DataFrame 
-            dataframe that summarizes accuracies
-
-        [By Matthew Schafer, github: @matty-gee; 2020ish]
-    '''
-    # TODO: add dummy accuracy values... make permutations optional too?
-    # dummy_clf = sklearn.dummy.DummyClassifier(strategy='most_frequent')
-
-    # cross-validator
-    if isinstance(cv, int):
-        # stratified to balance each fold by class (i.e., character) 
-        folds = StratifiedKFold(n_splits=cv, random_state=22, shuffle=True).split(X, y)
-    elif (isinstance(cv, str)) & (cv=='loo'): 
+    if isinstance(cv, int): # stratified to balance each fold by class (i.e., character) 
+        folds = StratifiedKFold(n_splits=cv, random_state=76, shuffle=True).split(X, y)
+    elif (isinstance(cv, str)) & (cv=='loo'): # leave one out
         folds = LeaveOneOut().split(X, y)
-    else:
+    else: # iterator
         folds = cv
-        
+
+    # drop voxels with 0/nan values
     X = VarianceThreshold().fit_transform(X) 
-    
-    acc_df = pd.DataFrame(columns=['acc_type', 'acc'])
-    accs = []
-    for k, (train_ix, test_ix) in enumerate(folds):
-        
-        X_train = X[train_ix].copy()
-        X_test  = X[test_ix].copy()
 
-        # preprocessing
-        if scale:
-            scaler  = StandardScaler().fit(X_train)
-            X_train = scaler.transform(X_train)
-            X_test  = scaler.transform(X_test)
+    # cross-validated decoding
+    for k, (train, test) in enumerate(folds):
 
-        # classify
-        # clf = clone(clf)
-        clf.fit(X_train, y[train_ix])
-        accs.append(clf.score(X_test, y[test_ix]))
-        
-    acc = np.round(np.mean(accs), 3)
-    acc_df.loc[len(acc_df)+1, :] = ['acc', acc]
+        # if standardizing, fit a scaling model on training folds
+        if standardize: 
+            scaler  = StandardScaler().fit(X[train])     
+            X_train = scaler.transform(X[train])
+            X_test  = scaler.transform(X[test])
+        else:
+            X_train = X[train].copy()
+            X_test  = X[test].copy()
+
+        # fit classifier on training folds
+        decoder = clone(clf)
+        decoder.fit(X_train, y[train]) 
+
+        # predict on held out fold
+        y_preds = decoder.predict(X_test)
+        pred_df = pd.DataFrame(np.vstack([test, y_preds, y[test], (y_preds == y[test]) * 1]).T,
+                               columns=['ix', 'predicted', 'actual', 'correct'])
+        pred_df.insert(0, 'split', k)
+
+        # evaluate performance
+        eval_df.loc[k, 'split']    = k
+        eval_df.loc[k, 'accuracy'] = decoder.score(X_test, y[test])
+        # eval_df.loc[k, 'balanced_acc'] = balanced_accuracy_score(y[test], y_preds)
+        # eval_df.loc[k, 'f1'] = f1_score(y[test], y_preds, average='weighted')
+        # eval_df.loc[k, 'phi'] = matthews_corrcoef(y[test], y_preds)
+        # eval_df.loc[k, 'dice'] = sp.spatial.distance.dice(y[test], y_preds)
+
+        # get probabilities
+        if hasattr(decoder, 'predict_proba'): 
+            y_probas = decoder.predict_proba(X_test)
+            for p, y_probas_ in enumerate(y_probas.T):
+                pred_df[f'probas_class{p+1:02d}'] = y_probas_
+
+        pred_dfs.append(pred_df)
+    pred_df = pd.concat(pred_dfs)
+    pred_df.reset_index(inplace=True, drop=True)
+
+    # output dict
+    clf_dict = {'cross-validation': cv, 
+                'predictions': pred_df,
+                'evaluation': eval_df} 
     
-    return acc_df
+    return clf_dict
