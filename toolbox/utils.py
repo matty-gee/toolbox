@@ -24,8 +24,7 @@ def running_mean(X, step=2):
     ''' 
         a mean over a period of time
     '''
-    if type(X) not in [list, np.ndarray]: 
-        X = X.values
+    X = np.array(X)
     cumsum = np.cumsum(np.insert(X, 0, 0)) 
     return (cumsum[step:] - cumsum[:-step]) / float(step)
 
@@ -36,7 +35,7 @@ def cumulative_mean(X):
     return cumsum / cumnum
 
 #-------------------------------------------------------------------------------------------
-# checking 
+# checking
 #-------------------------------------------------------------------------------------------
 
 def all_equal(iterable):
@@ -268,8 +267,22 @@ def is_numeric(input_str):
 # pandas dataframes
 #-------------------------------------------------------------------------------------------
 
-def merge_dfs(df_list, on='sub_id', how='inner'):
-    return functools.reduce(lambda x, y: pd.merge(x, y, on=on, how=how), df_list)
+
+def merge_dfs(df_list, on=None, how='inner'):
+    # TODO: think if I leave on as None or False, then the intersection will be used by pandas anyway?
+    df = pd.read_excel(df_list[0])
+    for other_file in df_list[1:]:
+        df_other = pd.read_excel(other_file)
+        if on is None: # find duplicates
+            on = list(np.intersect1d(df.columns, df_other.columns)) 
+            df[on] = df[on].astype(df_other[on].dtypes) # ensure types are same
+        df = pd.merge(df, df_other, on=on, how=how)
+        
+    return df
+
+# older version much faster but with possible column duplication
+# def merge_dfs(df_list, on='sub_id', how='inner'):
+#     return functools.reduce(lambda x, y: pd.merge(x, y, on=on, how=how), df_list)
 
 
 def move_cols_to_front(df, cols):

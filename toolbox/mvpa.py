@@ -17,9 +17,12 @@ from sklearn.svm import SVC
 from sklearn.linear_model import LinearRegression, HuberRegressor
 from sklearn.model_selection import StratifiedShuffleSplit, cross_val_score
 
+import utils
+
 #-------------------------------------------------------------------------------------------
 # RDMs
 #-------------------------------------------------------------------------------------------
+
 
 def get_rdm(betas):
     '''
@@ -40,11 +43,14 @@ def get_rdm(betas):
     '''
     betas = VarianceThreshold().fit_transform(betas) # drop unvarying voxels
     rdm   = 1 - np.arctanh(np.corrcoef(betas)) # fisher-z transformed correlations
+    np.fill_diagonal(rdm, 0) # maybe -inf after arctanh 
     return rdm
 
+
 #-------------------------------------------------------------------------------------------
-# ROI-based 
+# Analyses
 #-------------------------------------------------------------------------------------------
+
 
 # maybe can move this to regression
 def fit_huber(X, y, epsilon=1.75, alpha=0.0001):
@@ -78,10 +84,11 @@ def fit_huber(X, y, epsilon=1.75, alpha=0.0001):
     return huber.coef_
 
 
-def avg_ps(betas):
-    rsm = 1 - get_rdm(betas)
-    ps  = np.mean(symm_mat_to_ut_vec(rsm)) # mean fisher z-transformed correlation
-    return ps
+def calc_ps(patterns):
+    ''' calculates avg and std of fisher z-transformed correlations of patterns
+    '''
+    rsv = utils.symm_mat_to_ut_vec(1 - get_rdm(patterns)) # fisher z-transformed correlation
+    return [np.mean(rsv), np.std(rsv)]
 
 
 def fit_mds(rdm, n_components=5):
@@ -105,10 +112,10 @@ def fit_mds(rdm, n_components=5):
 
         [By Matthew Schafer, github: @matty-gee; 2020ish]
     '''
-    rdm_dgz = digitize_matrix(rdm)
+    rdm_dgz = utils.digitize_matrix(rdm)
     mds = MDS(n_components=n_components, dissimilarity="precomputed", random_state=85)  
     mds_fitted = mds.fit(rdm_dgz)
-    embedding = mds_fitted.embedding_
+    embedding  = mds_fitted.embedding_
 
     # Kruskal's stress: scaled version of raw stress
     # -- https://stackoverflow.com/questions/36428205/stress-attribute-sklearn-manifold-mds-python
@@ -158,9 +165,11 @@ def bin_distances(distances, n_bins=2, encode='ordinal', strategy='quantile'):
     
     return bin_ixs, mean_dists
 
+
 #-------------------------------------------------------------------------------------------
 # Searchlights
 #-------------------------------------------------------------------------------------------
+
 
 def get_sl_data(brain_data, sl_mask, verbose=True):
     ''' returns searchlight data of shape: (num_volumes, num_voxels)'''
@@ -228,24 +237,6 @@ def sl_huber_rsa(brain_data, sl_mask, myrad, bcvar):
     print('Kernel duration: %.2f\n\n' % (time.time() - t1))
     
     return estimate
-
-
-def clf_cv(pl, X, y, cv, gridsearch=False, parameters=None):
-    
-    if gridsearch:
-        acc = []
-        for test, train in cv.split(X, y):
-
-            # inner loop: optimize pipeline w/ grid search 
-            grid = GridSearchCV(pl, parameters, cv=cv, return_train_score=False)
-            grid.fit(X[train], y[train])
-
-            # outer loop: test best pipeline
-            acc.append(grid.score(X[test], y[test]))
-    else: 
-        acc = cross_val_score(pl, X, y, cv=cv)
-        
-    return acc.mean()
 
 
 def sl_svm(data, mask, myrad, bcvar, pl_steps=['scaler'], gridsearch=False):
@@ -413,6 +404,7 @@ def run_sl(images, masks, sl_kernel, bcvar=None, other_masks=None, shape='ball',
     print('Searchlight duration: %.2f\n\n' % (t2 - t1))
     
     return sl_result
+
 
 #-------------------------------------------------------------------------------------------
 # DEV
