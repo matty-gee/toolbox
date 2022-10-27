@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from six.moves import cPickle 
 import json
 from xlsx2csv import Xlsx2csv
@@ -17,16 +18,16 @@ def load_pickle(filename):
     return data
 
 
-def load_json(filename):
-    with open(filename, 'r') as f:
-        data = json.load(f)
-    return data
-
-
 def save_json(data, filename):
     with open(filename, 'w') as f:
         json.dump(data, f, cls=json_encoder)
     f.close()
+
+
+def load_json(filename):
+    with open(filename, 'r') as f:
+        data = json.load(f)
+    return data
 
 
 class json_encoder(json.JSONEncoder):
