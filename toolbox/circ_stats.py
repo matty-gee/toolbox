@@ -83,6 +83,8 @@ def _coincident_vectors(u, v):
 # Vectors  
 #--------------------------------------------------------------------------------------------------------- 
 
+
+# probably better to just use the numpy.linalg versions:
 def l2_norm(v):
     ''' 
         Returns vectors l2 norm/magnitude/length 
@@ -171,7 +173,9 @@ def angle_between_vectors(u, v, direction=None, verbose=False):
     #         if len(U) < len(V): U = np.repeat(np.expand_dims(U, 0), len(V), axis=0)
     #         else:               V = np.repeat(np.expand_dims(V, 0), len(U), axis=0)
     #     rads = []
-    #     for u, v in zip(U, V):            
+    #     for u, v in zip(U, V):        
+    # 
+    #     
     # if one of vectors is at origin, the angle is undefined but could be considered as orthogonal (90 degrees)
     if ((u==0).all()) or ((v==0).all()): 
         if verbose: print(u, v, 'at least 1 vector at origin; treating as orthogonal')

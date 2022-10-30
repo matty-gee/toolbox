@@ -38,6 +38,12 @@ def cumulative_mean(X):
 # checking
 #-------------------------------------------------------------------------------------------
 
+def get_function_sourcecode(func):
+    import inspect
+    lines = inspect.getsource(func)
+    print(lines)
+
+
 def all_equal(iterable):
     ''' check if all items in a list are identical '''
     g = itertools.groupby(iterable)
@@ -267,22 +273,8 @@ def is_numeric(input_str):
 # pandas dataframes
 #-------------------------------------------------------------------------------------------
 
-
 def merge_dfs(df_list, on=None, how='inner'):
-    # TODO: think if I leave on as None or False, then the intersection will be used by pandas anyway?
-    df = pd.read_excel(df_list[0])
-    for other_file in df_list[1:]:
-        df_other = pd.read_excel(other_file)
-        if on is None: # find duplicates
-            on = list(np.intersect1d(df.columns, df_other.columns)) 
-            df[on] = df[on].astype(df_other[on].dtypes) # ensure types are same
-        df = pd.merge(df, df_other, on=on, how=how)
-        
-    return df
-
-# older version much faster but with possible column duplication
-# def merge_dfs(df_list, on='sub_id', how='inner'):
-#     return functools.reduce(lambda x, y: pd.merge(x, y, on=on, how=how), df_list)
+    return functools.reduce(lambda x, y: pd.merge(x, y, on=on, how=how), df_list)
 
 
 def move_cols_to_front(df, cols):
@@ -291,6 +283,27 @@ def move_cols_to_front(df, cols):
 
 def reset_sort(df):
     return df.sort_values(by=['sub_id'], ascending=False).reset_index(drop=True)
+
+#-------------------------------------------------------------------------------------------
+# numpy structured arrays
+#-------------------------------------------------------------------------------------------
+
+def join_struct_arrays(arrays):
+    ''' merge multiple numpy structured arrays qucikly '''
+    # TODO: right now fails if the arrays have overlapping column name 
+    sizes   = np.array([a.itemsize for a in arrays])
+    offsets = np.r_[0, sizes.cumsum()]
+    n       = len(arrays[0])
+    joint   = np.empty((n, offsets[-1]), dtype=np.uint8) # turn into integer 8 
+    for a, size, offset in zip(arrays, sizes, offsets):
+        joint[:, offset:offset+size] = a.view(np.uint8).reshape(n, size)
+    dtype = sum((a.dtype.descr for a in arrays), []) # fix dtyping back to original
+    return joint.ravel().view(dtype)
+
+
+def remove_struct_field(a, *fieldnames_to_remove):
+    ''' remove a colum from a numpy structured array '''
+    return a[[ name for name in a.dtype.names if name not in fieldnames_to_remove]]
 
 #-------------------------------------------------------------------------------------------
 # combos, permutations etc
