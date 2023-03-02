@@ -7,15 +7,15 @@ Wrapped/adapted code from astropy & Matlab's circstat [see docstrings]
 import numpy as np
 import pandas as pd
 import scipy as sp
-import sklearn as sk
+from sklearn.metrics import pairwise_distances
 
 from scipy.spatial.distance import pdist, squareform
 from turtle import degrees
 import pycircstat
 import astropy.stats
 from shapely.geometry import Polygon
+from shapesimilarity import shape_similarity
 import matplotlib.pyplot as plt
-
 # [member[0] for member in list(getmembers(pycircstat, isfunction))] # get all functions within a module
 
 #---------------------------------------------------------------------------------------------------------
@@ -78,6 +78,7 @@ def _corr(x, y, axis=0):
 def _coincident_vectors(u, v):
     ''' Checks if vectors (u & v) are the same or scalar multiples of each other'''
     return np.dot(u, v) * np.dot(u, v) == np.dot(u, u) * np.dot(v, v)
+
 
 #---------------------------------------------------------------------------------------------------------
 # Vectors  
@@ -313,7 +314,7 @@ def cosine_distance(u, v=None):
         cosine distance of (u, v) = 1 - (dot(u,v) / dot(l2_norm(u), l2_norm(v)))
         returns similarity measure [0,2]
     '''
-    return sk.metrics.pairwise_distances(u, v, metric='cosine')
+    return pairwise_distances(u, v, metric='cosine')
 
 
 def cosine_similarity(u, v=None):
@@ -323,7 +324,7 @@ def cosine_similarity(u, v=None):
         maybe issue: small angles tend to get very similar values(https://math.stackexchange.com/questions/2874940/cosine-similarity-vs-angular-distance)
 
     '''
-    return 1 - sk.metrics.pairwise_distances(u, v, metric='cosine')
+    return 1 - pairwise_distances(u, v, metric='cosine')
 
 
 def angular_distance(u, v=None):
@@ -342,25 +343,13 @@ def angular_similarity(u, v=None):
     return 1 - (np.arccos(cosine_similarity(u, v))/np.pi)
 
 
-def polar_coordinates(u, v=None):   
-    '''
-        return r, theta pairwise between vectors 
-        outputs in radians
-    '''
-    if v is None:   v = np.array([0, 0])
-    if v.ndim == 1: v = np.array(v).reshape(1,-1)
-    r     = sk.metrics.pairwise_distances(u, v, metric='euclidean')
-    theta = angle_between_vectors(u, v, direction=False)
-    return r, theta
-
-
 def binary_distances(arr, metric='jaccard'):
     ''' returns binary distances '''
     return squareform(pdist(arr, metric=metric))
 
 
 def shape_similarity(coords, checkRotation=False, rotations=None):
-    import shapesimilarity.shape_similarity as ss
+    
     '''
         Computes the pairwise shape similarity between sets of coordinates
         Uses shape_similarity from shapesimilarity module
@@ -370,10 +359,8 @@ def shape_similarity(coords, checkRotation=False, rotations=None):
         coords : array
             3D array of shape (num_shapes, x_coords, y_coords) 
         checkRotation : bool (optional)
-             _description_
             Default: False
         rotations : _type_ (optional)
-            _description_ 
             Default: None
 
         Returns
@@ -391,7 +378,7 @@ def shape_similarity(coords, checkRotation=False, rotations=None):
             if i == j: similarity[i,j] = 1
             else:
                 crd2 = coords[j,:,:]
-                similarity[j,i] = ss(crd1, crd2, checkRotation=checkRotation, rotations=rotations)
+                similarity[j,i] = shape_similarity(crd1, crd2, checkRotation=checkRotation, rotations=rotations)
     similarity = fill_in_upper_tri(sim_mat, 1)
     return similarity  
 
@@ -426,6 +413,7 @@ def shape_overlap(coords):
                 poly2        = Polygon(coords2[vertices2])
                 overlap[i,j] = poly1.intersection(poly2).area/poly1.area
     return overlap
+
 
 #---------------------------------------------------------------------------------------------------------
 # Statistics 
@@ -593,6 +581,7 @@ def circ_symtest(angles, axis=None):
 #---------------------------------------------------------------------------------------------------------
 # Correlations & regressions
 #---------------------------------------------------------------------------------------------------------
+
 
 def circ_corrcc(angles1, angles2):
     '''
@@ -867,9 +856,11 @@ class circ_circ_regression(BaseRegressor):
         angle_preds = np.arctan2(preds[:,1], preds[:,0]) # angularize the linear predictions
         return angle_preds
 
+
 #---------------------------------------------------------------------------------------------------------
 # Plotting
 #---------------------------------------------------------------------------------------------------------
+
 
 def vector_plot(ax, xy_comp, xy_unit, cluster_ids=None):
     '''

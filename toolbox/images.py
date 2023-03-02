@@ -5,13 +5,15 @@ import pandas  as pd
 import scipy   as sp
 import nibabel as nib
 import nilearn as nil
-from nilearn.input_data import NiftiLabelsMasker, NiftiMasker, NiftiSpheresMasker, NiftiMapsMasker
+from nilearn.maskers import NiftiLabelsMasker, NiftiMasker, NiftiSpheresMasker, NiftiMapsMasker
 from nilearn.image import load_img, get_data, new_img_like, math_img
 from nilearn.masking import compute_brain_mask
+import matplotlib.pyplot as plt
 
 #---------------------------------------------------------------------------------------------------------
-# io
+# nifti io
 #---------------------------------------------------------------------------------------------------------
+
 
 def load_nifti(nifti_fname):  
     return nib.load(nifti_fname)
@@ -161,7 +163,8 @@ def get_timeseries(func_img,
                    tr=None,
                    detrend=False, 
                    standardize=False, 
-                   low_pass=None, high_pass=None,
+                   low_pass=None, 
+                   high_pass=None,
                    confounds=None, 
                    standardize_confounds=False, 
                    high_variance_confounds=False,
@@ -264,11 +267,84 @@ def get_timeseries(func_img,
 
 
 #---------------------------------------------------------------------------------------------------------
-# operations
+# transformations
 #---------------------------------------------------------------------------------------------------------
 
 
 def resample_nifti(nifti_path, target_affine, target_shape, interpolation='nearest'):
     nii = nib.load(nifti_path)
-    resampled_nii = nil.image.resample_img(nii, target_affine=target_affine, target_shape=target_shape, interpolation=interpolation)    
+    resampled_nii = nil.image.resample_img(nii, target_affine=target_affine, 
+                                           target_shape=target_shape, interpolation=interpolation)    
     return resampled_nii    
+
+
+#---------------------------------------------------------------------------------------------------------
+# quality control
+#---------------------------------------------------------------------------------------------------------
+
+def output_mask_jpg(mask_path):
+
+    # get mask
+    mask_img  = nib.load(mask_path)
+    mask_data = mask_img.get_data()
+
+    # get info
+    dims      = mask_data.shape
+    vox_size  = mask_img.header.get_zooms()[0:3]
+    n_voxels  = np.sum(mask_data == 1)
+
+    # plot & save
+    mask_name = mask_path.split('/')[-1].split('.')[0]
+    fig, ax = plt.subplots(figsize=(10, 7))
+    mask_fig = nil.plotting.plot_roi(mask_img, title=f'{mask_name}\n- dims={dims}\n- vox_size={vox_size}\n- n_voxels={n_voxels}', 
+                                        annotate=False, draw_cross=False, axes=ax, 
+                                        output_file=f'{mask_name}.jpg')
+    
+
+def calc_roi_snr(func_fname, rois, nonbrain_coords=None, nonbrain_radius=10):
+    '''
+        Get temporal and spatial signal-to-noise ratios for rois in a functional image
+
+        Arguments
+        ---------
+        func_fname : str
+            Path to functional image
+        rois : list of str  
+            Paths to ROIs to get TSNR & SSNR for
+        nonbrain_coords : tuple (optional)
+            Where to put nonbrain ROI for SSNR
+            If None, use a plausible nonbrain location
+        nonbrain_radius : int (optional)
+            Radius of nonbrain ROI
+            Default: 10
+
+        Returns
+        -------
+        pd.DataFrame 
+            Contains TSNR and SSNR for each ROI, with shape: (num_rois, 3)
+
+        [By Matthew Schafer, github: @matty-gee; 2020ish]
+    '''
+
+    # define an roi outside of the brain
+    if nonbrain_coords is None:
+        func_shape = get_nifti_info(func_fname)[0][0:3]
+        nonbrain_coords = (func_shape[0]-5, func_shape[1]-5, func_shape[2]-5)
+    nonbrain_masker     = NiftiSpheresMasker([nonbrain_coords], radius=nonbrain_radius)
+    nonbrain_timeseries = nonbrain_masker.fit_transform(func_fname)
+    
+    # loop over defined rois
+    snr_df = pd.DataFrame(columns=['roi', 'ssnr', 'tsnr'])
+    for r, roi in enumerate(rois):
+        brain_timeseries = get_voxels_from_mask(roi, func_fname)
+        
+        # spatial snr
+        ssnr = np.nanmean(brain_timeseries) / np.nanstd(nonbrain_timeseries)
+
+        # temporal snr
+        voxelwise_tsnr = np.nanmean(brain_timeseries, 0) / np.nanstd(brain_timeseries, 0)
+        tsnr = np.nanmean(voxelwise_tsnr)
+        
+        snr_df.loc[r, :] = [roi, ssnr, tsnr]
+        
+    return snr_df

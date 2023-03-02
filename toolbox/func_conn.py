@@ -1,16 +1,20 @@
 import time
 import numpy as np
 import pandas as pd
-
 import nilearn as nil
 from nilearn import datasets
 from nilearn.maskers import NiftiSpheresMasker, NiftiLabelsMasker, NiftiMapsMasker, NiftiMasker
 from nilearn.connectome import ConnectivityMeasure
 import networkx as nx 
 
+# my modules
+from images import get_timeseries, get_nifti_info, save_as_nifti
+from files import load_pickle, save_json, pickle_file
+
 #-------------------------------------------------------------------------------------------
 # timeseries
 #-------------------------------------------------------------------------------------------
+
 
 def save_roi_timeseries(sub_id, lsa_dir):
     
@@ -70,7 +74,7 @@ def save_roi_timeseries(sub_id, lsa_dir):
         timeseries_df = pd.concat([timeseries_df, pd.DataFrame(timeseries)], ignore_index=True)
 
         # was getting errors, where it the same atlas' timeseries would be used multiple times
-        # -- slowing it down a little helped
+        # -- slowing it down a little helped...?
         time.sleep(30) 
 
     # output
@@ -78,51 +82,52 @@ def save_roi_timeseries(sub_id, lsa_dir):
     timeseries_df.insert(0, 'roi', roi_labels)
     timeseries_df.to_excel(out_fname, index=False) # output timeseries
 
+
 #-------------------------------------------------------------------------------------------
 # correlations between timeseries
 #-------------------------------------------------------------------------------------------
 
+
 def compute_roi_correlation(ts_fname, kind='correlation'):
     '''
-        kind: correlation or partial-correlation
+        kind: correlation or partial_correlation
     '''
+
+    # clean up
     kind = kind.replace('_', ' ') # partial_correlation -> partial correlation
     df   = pd.read_excel(ts_fname)
     rois = df['roi'].values
     ts   = df.iloc[:, 1:].values.T
-    fc   = ConnectivityMeasure(kind=kind, vectorize=False, discard_diagonal=False).fit_transform([ts])[0]
-    # fc_z = np.arctanh(fc.squeeze(0)) # outputs with an extra dimension
-    fc_z = np.arctanh(fc)
-    fc_z = pd.DataFrame(fc_z, columns=rois, index=rois)
 
+    # compute correlations
+    fc   = ConnectivityMeasure(kind=kind, vectorize=False, discard_diagonal=False).fit_transform([ts])[0]
+    fc_z = np.arctanh(fc) # z-transform
+
+    # output
+    fc_z = pd.DataFrame(fc_z, columns=rois, index=rois)
     fc_fname = ts_fname.replace('timeseries/', 'fc/') # folder name
     fc_fname = fc_fname.replace('timeseries', kind.replace(' ', '_') + '_z') # file name
     fc_z.to_excel(fc_fname)
 
 
-def compute_region_to_voxel_fc(sub_id, img_fname, out_dir, roi_type='roi', mask=None, mask_name=None, radius=8):
+def compute_region_to_voxel_fc(img_fname, mask, radius=8):
     '''
         Parameters
         __________
-        sub_id : str
         img_fname : str
-        out_dir : str
-        roi_type : str
-            'roi'
-            'sphere'
         mask : str if roi_type=='roi'; 3 item tuple if roi_type=='sphere'
-        mask_name : str optional
         radius : 
     '''
 
     # get region and whole brain timeseries with shape (voxels, trials)
     brain_timeseries, brain_masker = get_timeseries(img_fname, mask_type='whole-brain')
-    if roi_type == 'sphere':
-        region_timeseries, _ = get_timeseries(img_fname, mask=mask, mask_type=roi_type, radius=radius)
-    elif roi_type == 'roi':
-        region_timeseries, _ = get_timeseries(img_fname, mask=mask, mask_type=roi_type)
-        region_timeseries    = np.mean(region_timeseries, 0).reshape(1,-1) # average across voxels
 
+    # check if mask is a string
+    if isinstance(mask, str):
+        region_timeseries, _ = get_timeseries(img_fname, mask=mask, mask_type='roi')
+        region_timeseries    = np.mean(region_timeseries, 0).reshape(1,-1) # average across voxels
+    else:
+        region_timeseries, _ = get_timeseries(img_fname, mask=mask, mask_type='sphere', radius=radius)
     print(f'Region timeseries shape: {region_timeseries.shape}')
     print(f'Brain timeseries shape: {brain_timeseries.shape}')
     assert region_timeseries.shape[1] == brain_timeseries.shape[1], 'Incorrect shape of the timeseries'
@@ -134,17 +139,20 @@ def compute_region_to_voxel_fc(sub_id, img_fname, out_dir, roi_type='roi', mask=
     fc_img  = nil.image.index_img(fc_img, 0)
     print(f'FC image shape: {fc_img.shape}')
     
-    # output image
-    if roi_type == 'sphere':
-        out_str = f'{mask[0][0]}_{mask[0][1]}_{mask[0][2]}_radius{radius}'
-    elif roi_type == 'roi':
-        out_str = mask_name
-    
-    fc_img.to_filename(f'{out_dir}/{sub_id}_{out_str}_correlation_z.nii.gz')
+    # # output image
+    # if roi_type == 'sphere':
+    #     out_str = f'{mask[0][0]}_{mask[0][1]}_{mask[0][2]}_radius{radius}'
+    # elif roi_type == 'roi':
+    #     out_str = mask_name
+    # fc_img.to_filename(f'{out_dir}/{sub_id}_{out_str}_correlation_z.nii.gz')
+
+    return fc_img
+
 
 #-------------------------------------------------------------------------------------------
 # network analysis
 #-------------------------------------------------------------------------------------------
+
 
 class GraphProperties:
 
@@ -257,6 +265,7 @@ def compute_graph_properties(fc_fname, atlas='HO', thresh=0.95, weighted=False):
     if weighted: out_fname = f'{out_fname}_weighted_graph.pkl'
     else:        out_fname = f'{out_fname}_unweighted_graph.pkl'
     pickle_file(graph_data, out_fname)
+
 
 #-------------------------------------------------------------------------------------------
 # DEV

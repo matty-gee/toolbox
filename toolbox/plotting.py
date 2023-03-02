@@ -4,7 +4,7 @@ import matplotlib.colors as mcolors
 import seaborn as sns
 sns.set(style='white')
 from pylab import *
-
+import numpy as np
 import scipy
 
 #-------------------------------------------------------------------------------------------
@@ -50,6 +50,35 @@ def make_palette(color_list, plot=False):
     if plot: sns.palplot(pal)
     return pal
 
+
+def hex_to_rgb(hex_str):
+    """ #FFFFFF -> [255,255,255]"""
+    #Pass 16 to the integer function for change of base
+    return np.array([int(hex_str[i:i+2], 16) for i in range(1,6,2)])
+
+
+def convert_to_rgb(c):
+    if c[0] == "#": # hex
+        return hex_to_rgb(c)
+    elif isinstance(c, str): # string word
+        return np.array(mcolors.to_rgb(c))
+    else: # already rgb
+        return np.asarray(c)
+
+
+def get_color_gradient(c1, c2, n=10):
+    """ Given two colors, returns a color gradient with n colors """
+    assert n > 1, "n must be greater than 1"
+    c1_rgb = convert_to_rgb(c1)
+    c2_rgb = convert_to_rgb(c2)
+    mix_pcts   = [x/(n-1) for x in range(n)]
+    rgb_colors = [((1-mix)*c1_rgb + (mix*c2_rgb)) for mix in mix_pcts]
+    return ["#" + "".join([format(int(round(val*255)), "02x") for val in item]) for item in rgb_colors]
+
+def make_cmap(colors):
+    return sns.color_palette(colors, as_cmap=True)
+
+
 #-------------------------------------------------------------------------------------------
 # similarity plots
 #-------------------------------------------------------------------------------------------
@@ -89,6 +118,7 @@ def plot_rdm(rdm, lower_tri=False, v=(0,100), size=10, cmap='Purples', cbar=None
                 ax.collections[0].colorbar.set_ticklabels(["Similar", "Dissimilar"])
         plt.show()
     return fig
+
 
 #-------------------------------------------------------------------------------------------
 # create an annotated correlation matrix - TODO: improve

@@ -1,14 +1,129 @@
 import time
 import pandas as pd
 import numpy as np
-
-import sklearn
-from sklearn.base import clone
+from sklearn.base import clone, BaseEstimator, ClassifierMixin
+from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.feature_selection import VarianceThreshold
-from sklearn.pipeline import make_pipeline
 from sklearn.model_selection import GridSearchCV, LeaveOneOut, StratifiedKFold, StratifiedShuffleSplit
 from sklearn.metrics import balanced_accuracy_score, f1_score, roc_curve, auc, roc_auc_score, matthews_corrcoef, silhouette_score
+
+
+#---------------------------------------------------------------
+# classification classes
+#---------------------------------------------------------------
+
+# example of using sklearn api to create a custom classifier:
+class CustomClassifier(BaseEstimator, ClassifierMixin):
+    def __init__(self):
+        # should contain no operations other than assigning values to self
+        pass
+    def fit(self, X, y=None):
+        # store each persistent fit of estimator with a trailing underscore
+        pass
+    def predict_proba(self, X, y=None):
+        # class probabilities of shape [n_samples, n_classes]
+        pass
+    def predict(self, X, y=None):
+        # return class w/ largest probability
+        pass
+
+
+class KDEClassifier(BaseEstimator, ClassifierMixin):
+
+    """
+        Bayesian generative classification based on KDE
+        https://jakevdp.github.io/PythonDataScienceHandbook/05.13-kernel-density-estimation.html
+        Parameters
+        ----------
+        bandwidth : float
+            the kernel bandwidth within each class
+        kernel : str
+        the kernel name, passed to KernelDensity
+    """
+
+    def __init__(self, bandwidth=1.0, algorithm='ball_tree', kernel='gaussian', leaf_size=40):
+
+        self.bandwidth = bandwidth
+        self.algorithm = algorithm
+        self.kernel    = kernel
+        self.leaf_size = leaf_size
+        
+    def fit(self, X, y):
+
+        ''' train a KDE model for each class & compute class priors based on number of samples '''
+
+        self.classes_ = np.sort(np.unique(y))
+        training_sets = [X[y == yi] for yi in self.classes_]
+        self.models_  = [KernelDensity(bandwidth=self.bandwidth, 
+                                       algorithm=self.algorithm, 
+                                       kernel=self.kernel, 
+                                       leaf_size=self.leaf_size).fit(Xi) 
+                                       for Xi in training_sets]
+        self.logpriors_ = [np.log(Xi.shape[0] / X.shape[0]) 
+                           for Xi in training_sets]
+        return self
+        
+    def predict_proba(self, X):
+
+        ''' compute the log-probability for each class for each sample in X '''
+
+        logprobs = np.array([model.score_samples(X) for model in self.models_]).T
+        result   = np.exp(logprobs + self.logpriors_)
+        return result / result.sum(1, keepdims=True)
+        
+    def predict(self, X):
+
+        ''' return the class with highest probability '''
+        
+        return self.classes_[np.argmax(self.predict_proba(X), 1)]
+    
+
+class TreeEmbeddingLogisticRegression(BaseEstimator, ClassifierMixin):
+
+    """
+        Fits a logistic regression model on tree embeddings.
+        Based on this paper:
+            https://scontent-lga3-1.xx.fbcdn.net/v/t39.8562-6/240842589_204052295113548_74168590424110542_n.pdf?_nc_cat=109&ccb=1-7&_nc_sid=ad8a9d&_nc_ohc=603CgpLoJ4YAX8WYtZt&_nc_ht=scontent-lga3-1.xx&oh=00_AfD34QY420D3XpCN84ZMTw7QaBva__IYw8MXQNkVfCjlCg&oe=63E9D58A
+    """
+    
+    def __init__(self, penalty='l1', C=1, **kwargs):
+
+        self.kwargs = kwargs
+        self.penalty = penalty
+        self.C = C
+        self.gbm = GradientBoostingClassifier(**kwargs)
+        self.lr  = LogisticRegression(penalty=penalty, C=C, solver="liblinear")
+        self.bin = OneHotEncoder()
+    
+    def fit(self, X, y=None):
+
+        self.gbm.fit(X, y)
+        X_emb = self.gbm.apply(X).reshape(X.shape[0], -1)
+        X_emb = self.bin.fit_transform(X_emb) # binarize features LR can fit non-linearities
+        self.lr.fit(X_emb, y)
+    
+    def predict(self, X, y=None, with_tree=False):
+
+        if with_tree:
+            preds = self.gbm.predict(X)
+        else:
+            X_emb = self.gbm.apply(X).reshape(X.shape[0], -1)
+            X_emb = self.bin.transform(X_emb)
+            preds = self.lr.predict(X_emb)
+
+        return preds
+    
+    def predict_proba(self, X, y=None, with_tree=False):
+
+        if with_tree:
+            preds = self.gbm.predict_proba(X)
+        else:
+            X_emb = self.gbm.apply(X).reshape(X.shape[0], -1)
+            X_emb = self.bin.transform(X_emb)
+            preds = self.lr.predict_proba(X_emb)
+            
+        return preds  
 
 
 class ClassifierGridSearch(object):
@@ -70,17 +185,9 @@ class ClassifierGridSearch(object):
         return df
 
 
-def create_pipeline(estimator, steps=[]):
-    ''' create a sklearn pipeline, with list of steps followed by estimator
-        pl.get_params().keys(): to see which parameters are available
-    '''
-    
-    pl_dict = {'scaler': StandardScaler(), 
-               'selector': VarianceThreshold(),
-               'pca': PCA(n_components = 25)}
-    
-    return Pipeline([(step, pl_dict[step]) for step in steps] + [('estimator', estimator)])
-
+#---------------------------------------------------------------
+# helper functions 
+#---------------------------------------------------------------
 
 def run_perm_clf(clf, X, y, k=10, cv=StratifiedKFold, permutations=1000):
     '''

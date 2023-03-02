@@ -26,7 +26,7 @@ if __name__ == '__main__':
         f.write(f'User: {user}\n')
         f.write(f'Test datetime: {datetime.datetime.now()}\n')
         f.write(f'Python version: {sys.version}\n\n')
-        run_tests(f) # run & output test results
+        run_tests(f)
         f.write('\n......................................................................\n')
         f.write('......................................................................\n\n')
         

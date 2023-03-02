@@ -4,9 +4,18 @@ import pandas as pd
 import numpy as np
 import patsy
 import statsmodels.api as sm
-from sklearn.linear_model import LinearRegression, PoissonRegressor, HuberRegressor
+from sklearn.linear_model import LinearRegression, HuberRegressor
 import matplotlib.pyplot as plt
 import seaborn as sns
+from sklearn.metrics import r2_score
+
+def compute_r2_adjusted(r2, n, p):
+    '''
+    r2: r2 score
+    n: number of observations
+    p: number of features
+    '''
+    return 1 - (1 - r2) * (n - 1) / (n - p - 1)
 
 #-------------------------------------------------------------------------------------------
 # Standard regressions
@@ -182,30 +191,35 @@ class ExponentialRegression:
     def fit(self, X, y):
         
         # define inputs
-        if X.ndim == 1: X = X.reshape(-1,1)
+        if X.ndim == 1: X = X[:,np.newaxis]
         self.X = X.astype(float)
         self.y = y.astype(float)
         
         # log transform y
-        log_y = np.log(self.y + 0.00001) # add a tiny amount to avoid infs with 0 values
+        # the amount I add seems to affect fit... 
+        log_y = np.log(self.y + 0.0000001) # add a tiny amount to avoid infs with 0 values
         
-        # fit with ols
-        self.exp_reg = LinearRegression().fit(self.X, log_y)
-        self.coef_lin = self.exp_reg.coef_ 
+        # fit log w/ transformed y with ols
+        self.exp_reg    = LinearRegression().fit(self.X, log_y)
+        self.coef_lin   = self.exp_reg.coef_ 
         self.intercept_ = self.exp_reg.intercept_
-        
+   
         return self
 
     def predict(self, X):
         
-        if X.ndim == 1: X = X.reshape(-1,1)
+        if X.ndim == 1: X = X[:,np.newaxis]
         X = X.astype(float)
 
-        # inverse transform to get predictions
-        # y = exp(int) * exp(beta * x)
-        predictions = np.exp(self.intercept_) * np.exp(self.coef_lin @ X.T)
+        # take exp (inverse transform of log) to get predictions
+        # y = exp(int) * exp(dot(beta, x))
+        self.yhat = np.exp(self.intercept_) * np.exp(self.coef_lin @ X.T)
         
-        return predictions
+        # compute r2
+        self.r2     = r2_score(self.y, self.yhat)
+        self.r2_adj = compute_r2_adjusted(self.r2, self.X.shape[0], self.X.shape[1])
+
+        return self.yhat
     
 
 class PolynomialRegression:
@@ -235,17 +249,22 @@ class PolynomialRegression:
         poly_X = self.transform_features(self.X)
         
         # fit with ols
-        self.poly_reg = LinearRegression().fit(poly_X, y) # fitted object
-        self.coef_ = self.poly_reg.coef_
-        
+        self.poly_reg  = LinearRegression().fit(poly_X, y) # fitted object
+        self.coef_      = self.poly_reg.coef_
+        self.intercept_ = self.poly_reg.intercept_
+
         return self
 
     def predict(self, X):
         
-        poly_X = self.transform_features(X)
-        predictions = self.poly_reg.predict(poly_X)  
+        poly_X    = self.transform_features(X)
+        self.yhat = self.poly_reg.predict(poly_X)  
         
-        return predictions
+        # compute r2
+        self.r2     = r2_score(self.y, self.yhat)
+        self.r2_adj = compute_r2_adjusted(self.r2, self.X.shape[0], self.X.shape[1])
+        
+        return self.yhat
        
 #-------------------------------------------------------------------------------------------
 # Performance metrics & plots

@@ -5,9 +5,10 @@ import nibabel as nib
 import nilearn as nil
 # import brainiak.searchlight.searchlight
 
+import time
 from sklearn.pipeline import make_pipeline, Pipeline
-from nilearn.image import load_img, binarize_img, resample_to_img
-from nilearn.masking import compute_brain_mask
+from nilearn.image import load_img, resample_to_img, binarize_img
+from nilearn.masking import compute_brain_mask, compute_multi_brain_mask, intersect_masks
 from sklearn.preprocessing import StandardScaler, KBinsDiscretizer
 from sklearn.feature_selection import VarianceThreshold
 from sklearn.metrics import pairwise_distances
@@ -17,7 +18,22 @@ from sklearn.svm import SVC
 from sklearn.linear_model import LinearRegression, HuberRegressor
 from sklearn.model_selection import StratifiedShuffleSplit, cross_val_score
 
+from images import get_nifti_info, save_as_nifti
 import utils
+
+#-------------------------------------------------------------------------------------------
+# Helpers
+#-------------------------------------------------------------------------------------------
+
+# create a sklearn pipeline
+def create_pipeline(estimator, steps=[]):
+    
+    pl_dict = {'scaler': StandardScaler(), 
+               'selector': VarianceThreshold(),
+               'pca': PCA(n_components = 25)}
+    
+    return Pipeline([(step, pl_dict[step]) for step in steps] + [('estimator', estimator)])
+
 
 #-------------------------------------------------------------------------------------------
 # RDMs
@@ -41,9 +57,10 @@ def get_rdm(betas):
 
         [By Matthew Schafer; github: @matty-gee; 2020ish]
     '''
-    betas = VarianceThreshold().fit_transform(betas) # drop unvarying voxels
-    rdm   = 1 - np.arctanh(np.corrcoef(betas)) # fisher-z transformed correlations
-    np.fill_diagonal(rdm, 0) # maybe -inf after arctanh 
+    with np.errstate(divide='ignore'): # ignore divide by zero warnings
+        betas = VarianceThreshold().fit_transform(betas) # drop unvarying voxels
+        rdm   = 1 - np.arctanh(np.corrcoef(betas)) # fisher-z transformed correlations
+        np.fill_diagonal(rdm, 0) # 0s become -inf after arctanh 
     return rdm
 
 
@@ -52,7 +69,6 @@ def get_rdm(betas):
 #-------------------------------------------------------------------------------------------
 
 
-# maybe can move this to regression
 def fit_huber(X, y, epsilon=1.75, alpha=0.0001):
     '''
         Run huber regression 
@@ -91,7 +107,7 @@ def calc_ps(patterns):
     return [np.mean(rsv), np.std(rsv)]
 
 
-def fit_mds(rdm, n_components=5):
+def fit_mds(rdm, metric=True, n_components=5, digitize=False):
     '''
         Computes multidimensional scaling from a precomputed representational dissimilarity matrix
 
@@ -112,17 +128,16 @@ def fit_mds(rdm, n_components=5):
 
         [By Matthew Schafer, github: @matty-gee; 2020ish]
     '''
-    rdm_dgz = utils.digitize_matrix(rdm)
-    mds = MDS(n_components=n_components, dissimilarity="precomputed", random_state=85)  
-    mds_fitted = mds.fit(rdm_dgz)
-    embedding  = mds_fitted.embedding_
+    if digitize: rdm = utils.digitize_matrix(rdm)
+    mds = MDS(n_components=n_components, metric=metric,
+              dissimilarity="precomputed", random_state=85)  
+    mds_fitted = mds.fit(rdm)
 
     # Kruskal's stress: scaled version of raw stress
     # -- https://stackoverflow.com/questions/36428205/stress-attribute-sklearn-manifold-mds-python
     # -- raw stress = 1/2 * sum(euclidean dists between embedded coords - inputted dists)^2
     kruskal_stress = np.sqrt(mds_fitted.stress_ / (0.5 * np.sum(rdm ** 2))) 
-
-    return embedding, kruskal_stress
+    return mds_fitted.embedding_, kruskal_stress
 
 
 def bin_distances(distances, n_bins=2, encode='ordinal', strategy='quantile'):
@@ -171,29 +186,24 @@ def bin_distances(distances, n_bins=2, encode='ordinal', strategy='quantile'):
 #-------------------------------------------------------------------------------------------
 
 
-def get_sl_data(brain_data, sl_mask, verbose=True):
+# get data for searchlight
+def get_sl_data(brain_data, sl_mask, verbose=False):
     ''' returns searchlight data of shape: (num_volumes, num_voxels)'''
+
     assert brain_data.shape[0:3] == sl_mask.shape, 'The brain and mask have different shapes'
     num_vols = brain_data.shape[3]
-    reshaped = brain_data.reshape(sl_mask.shape[0] * sl_mask.shape[1] * sl_mask.shape[2], num_vols).T
+    assert num_vols in [5, 60, 63], f'Number of volumes is prob. wrong: {num_vols}'
+    sl_data  = brain_data.reshape(sl_mask.shape[0] * sl_mask.shape[1] * sl_mask.shape[2], num_vols).T
     
     if verbose:
-        print(f"Searchlight data shape: {brain_data.shape}")
-        print(f"Searchlight data shape after reshaping: {data_sl.shape}")
-        print(f"Searchlight mask shape: {sl_mask.shape}\n")
+        print(f"SL data shape: {brain_data.shape}")
+        print(f"SL data shape after reshaping: {sl_data.shape}")
+        print(f"SL mask shape: {sl_mask.shape}\n")
     
-    return reshaped
+    return sl_data
 
 
-def create_pipeline(estimator, steps=[]):
-    
-    pl_dict = {'scaler': StandardScaler(), 
-               'selector': VarianceThreshold(),
-               'pca': PCA(n_components = 25)}
-    
-    return Pipeline([(step, pl_dict[step]) for step in steps] + [('estimator', estimator)])
-
-
+# single subject searchlights
 def sl_huber_rsa(brain_data, sl_mask, myrad, bcvar):
     '''
         Run representational similarity analysis w/ huber regression in a brainiak searchlight 
@@ -218,18 +228,19 @@ def sl_huber_rsa(brain_data, sl_mask, myrad, bcvar):
 
         [By Matthew Schafer; github: @matty-gee; 2020ish]
     '''
+
     t1 = time.time()
     
-    # get searchlight volume
+    # get searchlight volume 
     data_sl = get_sl_data(brain_data[0], sl_mask)
 
-    # transform volume (optional)
+    # transform data into rdv
     neural_rdv = symm_mat_to_ut_vec(get_rdm(data_sl))
 
     # get behavior/label/etc 
     predictor_rdvs = bcvar
 
-    # run stats
+    # regress brain onto behavior
     huber = HuberRegressor(epsilon=1.75, alpha=0.0001, max_iter=50)
     huber.fit(predictor_rdvs, neural_rdv)
     estimate = huber.coef_[0]
@@ -239,171 +250,45 @@ def sl_huber_rsa(brain_data, sl_mask, myrad, bcvar):
     return estimate
 
 
-def sl_svm(data, mask, myrad, bcvar, pl_steps=['scaler'], gridsearch=False):
+def sl_mds(data, sl_mask, myrad, bcvar):
+
     '''
-        Run SVM in a brainiak searchlight within single subject
+        Computes multidimensional scaling from a precomputed representational dissimilarity matrix
 
         Arguments
         ---------
-        data : list of matrices
-            Includes at least 1 subject's 4D matrix inside it
-            Can include multiple subjects; most useful if want to run SLs within small volume and not save individual niftis
-        mask : matrix
-            Boolean mask for voxels to run searchlight over
-        myrad : float
-            Radius of searchlight [not sure if this is necessary..?]
-        bcvar : list, dictionary (optional)
-            Another variable to use with searchlight kernel
-            E.g., condition labels for each trial/observation
-        pl_steps : list of strings (optional)
-            Pre-SVM pipeline steps; set to an empty list if want no preprocessing
-            Default : 'scaler'
-        gridsearch : boolean (optinal)
-            Whether to optimize with grid search in inner loop 
-            Default: False
-        
-        Returns
-        -------
-        float 
-            Average 5-fold cross-validated accuracy
-
-        [By Matthew Schafer; github: @matty-gee; 2020ish]
-    '''
-    
-    t1 = time.time()
-    
-    accuracy = []
-    
-    for X, y in zip(data, bcvar):
-        
-        # get searchlight volume
-        X = get_sl_data(X, mask)
-
-        # run svm
-        svm = SVC(kernel='linear')
-        pl  = create_pipeline(svm, steps=pl_steps)
-        params = {'estimator__C': [0.0001, 0.01, 0.5, 1]} 
-        cv  = StratifiedShuffleSplit(n_splits=5, test_size=0.20, random_state=23) 
-        acc = clf_cv(pl, X, y, cv, gridsearch=gridsearch, parameters=params)
-
-        accuracy.append(acc.mean())
-        
-    print('Kernel duration: %.2f\n\n' % (time.time() - t1))
-    
-    if len(data) == 1: return accuracy[0]
-    else:              return accuracy
-
-
-def sl_svm_group(data, sl_mask, myrad, bcvar):
-    '''
-        Run an SVM searchlight on subject-level
-
-        Arguments
-        ---------
-        data : array
-            Brain data
-        sl_mask : bool array
-            Boolean mask to run searchlight in 
-        myrad : _type_
+        rdm : array
             _description_
-        bcvar : list
-            A label for the classification
+        bcvar : dict of n_components & metric (boolean)
 
         Returns
         -------
-        _type_ 
+        kruskal_stress : float
             _description_
 
-        [By Matthew Schafer; github: @matty-gee; 2020ish]
-    '''
-    
-    # get sl volumes
-    X = [get_sl_data(sub_data, sl_mask).flatten() for sub_data in data] # (subs, features) 
-    
-    # get labels
-    y = [bcv for bcv in bcvar]
-
-    # run svm
-    svm = SVC(kernel='linear', C=1)
-    acc = cross_val_score(svm, X, y, cv=5)
-    
-    return acc.mean()
-
-
-def run_sl(images, masks, sl_kernel, bcvar=None, other_masks=None, shape='ball', radius=3, min_prop=0.10, num_sls=10):
-    '''
-        Run brainiak searchlight, save nifti 
-
-        Arguments
-        ---------
-        images : list of str
-            Path(s) to functional nifti paths
-        masks : list of str
-            Path(s) to binary mask to compute searchlight in (e.g., mask from fmriprep)
-        sl_kernel : function
-            The searchlight function to be distributed
-        other_masks : list of str or float (optional)
-            If want to intersect mask_path with mask(s)
-            Default: None
-        bcvar : list, dictionary, etc (optional)
-            A variable to broadcast to all searchlight kernels
-            Example: condition labels for each 3D volume
-        shape : str (optional)
-            Shape of searchlight: 'cube', 'ball', 'diamond'
-            Default: 'ball'
-        radius : int (optional)
-            Radius of searchlight
-            Default: 3
-        min_prop : float (optional)
-            Minimum proportion of voxels that need to be 'active' to have sl computed
-            Default: 0.10
-        num_sls : int (optional)
-            Number of sls to run concurrently
-            Default: 10
-
-        [By Matthew Schafer; github: @matty-gee; 2020ish]
+        [By Matthew Schafer, github: @matty-gee; 2020ish]
     '''
 
-    sl_shapes = {'cube': brainiak.searchlight.searchlight.Cube,
-                 'ball': brainiak.searchlight.searchlight.Ball,
-                 'diamond': brainiak.searchlight.searchlight.Diamond}
+    # get data for searchlight
+    sl_data = get_sl_data(data[0], sl_mask)
 
-    # load subject(s) images
-    data = [nib.load(f).get_data() for f in images]
-    assert all_equal_arrays([s.shape for s in data]), 'Brain(s) are different shapes'
-        
-    # load/compute a single boolean mask
-    if isinstance(other_masks, float): # float : compute a GM mask from sub masks using 'other_mask' as threshold
-        if len(masks) == 1: compute_mask = compute_brain_mask # single subject
-        else:               compute_mask = compute_multi_brain_mask
-        mask = compute_mask(masks, mask_type='gm', threshold=other_masks, connected=False) 
-    else: # intersect mask(s) w/ sub masks
-        if other_masks is None: 
-            all_masks = masks
-        else:
-            if isinstance(other_masks, list): # multiple masks in a list
-                other_masks = intersect_masks(masks, threshold=0, connected=False) # union of 'other_masks' (threshold == 0)
-            other_masks = resample_to_img(masks, images[0], interpolation="nearest") # resample to correct image (use "nearest" to keep binary)
-            all_masks   = masks + [other_masks]
-        mask = intersect_masks(all_masks, threshold=1, connected=False) # intersection of all masks (threshold == 1)    
-    for d in data: assert d.shape[0:3] == mask.shape, 'Brain(s) and mask are different shapes'
-        
-    print(f'Number of subjects: {len(data)}') 
-    print(f'Func data shape: {data[0].shape}') 
-    print(f'Searchlight is a {shape} with radius: {radius}')
+    # get representational dissimilarity matrix
+    rdm = get_rdm(sl_data)
+    assert rdm.shape in [(5,5), (60,60), (63,63)], f'Neural RDM is prob. wrong shape: {rdm.shape}'
 
-    # build & distribute sl to run
-    t1 = time.time()
-    sl = brainiak.searchlight.searchlight.Searchlight(sl_rad=radius, shape=sl_shapes[shape], 
-                                                      min_active_voxels_proportion=min_prop,
-                                                      max_blk_edge=num_sls) 
-    sl.distribute([data], mask)
-    if bcvar is not None: sl.broadcast(bcvar) # broadcast data needed for all sls       
-    sl_result = sl.run_searchlight(sl_kernel, pool_size=1) 
-    t2 = time.time()
-    print('Searchlight duration: %.2f\n\n' % (t2 - t1))
-    
-    return sl_result
+    # fit MDS
+    n_components, metric = bcvar['n_components'], bcvar['metric']
+    mds = MDS(n_components=n_components, metric=metric, 
+              dissimilarity="precomputed", random_state=85)  
+    mds.fit(rdm)
+
+    # Kruskal's stress: scaled version of raw stress
+    # -- https://stackoverflow.com/questions/36428205/stress-attribute-sklearn-manifold-mds-python
+    # -- raw stress = 1/2 * sum(euclidean dists between embedded coords - inputted dists)^2
+    kruskal_stress = np.sqrt(mds.stress_ / (0.5 * np.sum(rdm ** 2))) 
+
+    return kruskal_stress
+
 
 
 #-------------------------------------------------------------------------------------------
