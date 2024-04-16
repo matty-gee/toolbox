@@ -2,7 +2,8 @@
 import sys
 import nibabel as nib
 import numpy as np
-sys.path.insert(0, f'/Users/matty_gee/Dropbox/Projects/toolbox/toolbox')
+
+sys.path.insert(0, '/Users/matty_gee/Dropbox/Projects/toolbox/toolbox')
 from images import get_nifti_info, save_as_nifti
 from mvpa import run_sl, sl_mds
 
@@ -40,3 +41,6 @@ sl_result = run_sl(sub_func_fname, sub_mask_fname, sl_kernel, bcvar=bcvar, \
 # save image
 dims, vox_size, affine_matrix = get_nifti_info(sub_func_fname)
 save_as_nifti(sl_result, 'test.nii', affine_matrix, vox_size)
+
+
+

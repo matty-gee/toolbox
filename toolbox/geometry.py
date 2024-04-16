@@ -1,26 +1,48 @@
-'''
-Functions related to circular statistics and other related problems - e.g., angles, distances, trigonometry.
-Note: all functions that accept angles expect radians
-Wrapped/adapted code from astropy & Matlab's circstat [see docstrings]
-'''
-
+import itertools
 import numpy as np
 import pandas as pd
 import scipy as sp
-from sklearn.metrics import pairwise_distances
 
-from scipy.spatial.distance import pdist, squareform
+from general_utils import fill_in_upper_tri
+
 from turtle import degrees
 import pycircstat
 import astropy.stats
 from shapely.geometry import Polygon
 from shapesimilarity import shape_similarity
+from frechetdist import frdist
+from fastdtw import fastdtw
+
+from scipy import stats
+from scipy.interpolate import splprep, splev, BSpline
+from scipy.spatial import distance, ConvexHull, Delaunay, procrustes
+from scipy.spatial.distance import pdist, squareform, cdist, euclidean, directed_hausdorff
+from scipy.optimize import linprog
+
+from sklearn.metrics import pairwise_distances
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.dummy import DummyRegressor
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.manifold import LocallyLinearEmbedding
+from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering, spectral_clustering
+
+import umap
+import kmapper as km
+from ripser import ripser, Rips
+from persim import plot_diagrams
+# from gtda.homology import (VietorisRipsPersistence, EuclideanCechPersistence, WeightedRipsPersistence, CubicalPersistence)
+# from gtda.diagrams import (PersistenceImage, PersistenceLandscape, BettiCurve, HeatKernel, PersistenceEntropy, NumberOfPoints, Amplitude, ComplexPolynomial, Scaler)
+# from gtda.plotting import plot_diagram
+# from gtda.mapper import (CubicalCover, Projection, make_mapper_pipeline, plot_static_mapper_graph, plot_interactive_mapper_graph, MapperInteractivePlotter)
+
 import matplotlib.pyplot as plt
+
 # [member[0] for member in list(getmembers(pycircstat, isfunction))] # get all functions within a module
 
 #---------------------------------------------------------------------------------------------------------
-# Private functions
+# private functions
 #---------------------------------------------------------------------------------------------------------
+
 
 def _components(data, p=1, phi=0.0, axis=None, weights=None):
     ''' 
@@ -40,7 +62,6 @@ def _components(data, p=1, phi=0.0, axis=None, weights=None):
 
     return C, S
 
-
 def _angle(data, p=1, phi=0.0, axis=None, weights=None):
     ''' 
         computing the generalized sample mean angle
@@ -58,7 +79,6 @@ def _angle(data, p=1, phi=0.0, axis=None, weights=None):
 
     return theta
 
-
 def _length(data, p=1, phi=0.0, axis=None, weights=None):
     ''' 
         computing the generalized sample length 
@@ -67,13 +87,11 @@ def _length(data, p=1, phi=0.0, axis=None, weights=None):
     C, S = _components(data, p, phi, axis, weights)
     return np.hypot(S, C)
 
-
 def _corr(x, y, axis=0):
     ''' correlate x & y '''
     return np.sum((x - x.mean(axis=axis, keepdims=True))  * \
                   (y - y.mean(axis=axis, keepdims=True)), axis=axis) \
             / np.std(x, axis=axis) / np.std(y, axis=axis) / x.shape[axis]
-
 
 def _coincident_vectors(u, v):
     ''' Checks if vectors (u & v) are the same or scalar multiples of each other'''
@@ -81,18 +99,8 @@ def _coincident_vectors(u, v):
 
 
 #---------------------------------------------------------------------------------------------------------
-# Vectors  
+# vectors & matrices
 #--------------------------------------------------------------------------------------------------------- 
-
-
-# probably better to just use the numpy.linalg versions:
-def l2_norm(v):
-    ''' 
-        Returns vectors l2 norm/magnitude/length 
-        L2 norm = square root of sum of squared vector values
-        (Equivalent to: np.linalg.norm(v))
-    '''
-    return np.sqrt(np.sum(np.square(v)))
 
 
 def l1_norm(v):
@@ -101,30 +109,35 @@ def l1_norm(v):
         L1 norm = sum of vector absolute values
         (Equivalent to: np.linalg.norm(v, ord=1))
     '''
-    return np.sum(np.abs(v))
+    return np.linalg.norm(v, ord=1)
 
+def l2_norm(v):
+    ''' 
+        Returns vectors l2 norm/magnitude/length 
+        L2 norm = square root of sum of squared vector values
+        (Equivalent to: np.linalg.norm(v))
+    '''
+    return np.linalg.norm(v)
 
 def l1_normalize(v):
     ''' Returns l1 normalized vector '''
-    return v / l2_norm(v)
-
+    return v / np.linalg.norm(v, ord=1)
 
 def l2_normalize(v):
     ''' Returns l2 normalized vector with length of 1 (aka unit vector) '''
-    return v / l2_norm(v)
-
+    return v / np.linalg.norm(v)
 
 def circ_vectors(theta, r):
     ''' 
         returns x & y components and unit vector values
-    '''        
+    ''' 
+    assert theta.shape == r.shape, 'theta and r must have same shape'
     theta = theta.astype(float)
-    xy_comp = np.array([r*np.cos(theta), r*np.sin(theta)]).T
-    xy_unit = np.array([np.cos(theta), np.sin(theta)]).T
+    xy_comp = np.array([r*np.cos(theta), r*np.sin(theta)]).T # x,y components
+    xy_unit = np.array([np.cos(theta), np.sin(theta)]).T # x,y on unit circle
     return xy_comp, xy_unit
 
-
-def angle_to_circle(theta, ori=[0,0], radius=3):
+def angle_to_circle(theta, ori=None, radius=1):
     '''
         project angles to circle perimeter
         can improve clustering of angles - makes them comparable by distance
@@ -134,10 +147,13 @@ def angle_to_circle(theta, ori=[0,0], radius=3):
         ori : tuple
             origin [x,y]
     '''
+    # check theta is within 0 and 2pi
+    # if theta < 0: theta += 2*np.pi
+    
+    if ori is None: ori = [0,0]
     circ_x = ori[0] + radius + np.cos(theta)
     circ_y = ori[1] + radius + np.sin(theta)
     return np.array([circ_x, circ_y]).T
-
 
 def angle_between_vectors(u, v, direction=None, verbose=False):
     '''
@@ -209,7 +225,6 @@ def angle_between_vectors(u, v, direction=None, verbose=False):
             rad = (np.arctan2(*u[::-1]) - np.arctan2(*v[::-1])) % (2 * np.pi)
             
     return rad
-
 
 def calculate_angle(U, V=None, direction=None, force_pairwise=True, verbose=False):
     '''
@@ -308,115 +323,373 @@ def calculate_angle(U, V=None, direction=None, force_pairwise=True, verbose=Fals
         
     return radians
 
-
-def cosine_distance(u, v=None):
-    ''' 
-        cosine distance of (u, v) = 1 - (dot(u,v) / dot(l2_norm(u), l2_norm(v)))
-        returns similarity measure [0,2]
-    '''
-    return pairwise_distances(u, v, metric='cosine')
-
-
-def cosine_similarity(u, v=None):
-    ''' 
-        cosine similarity of (u, v) = dot(u,v) / dot(l2_norm(u), l2_norm(v))
-        returns similarity measure [-1,1], equivalent to [0 degrees,18 0degrees]
-        maybe issue: small angles tend to get very similar values(https://math.stackexchange.com/questions/2874940/cosine-similarity-vs-angular-distance)
-
-    '''
-    return 1 - pairwise_distances(u, v, metric='cosine')
-
-
 def angular_distance(u, v=None):
     ''' 
         angular distance of (u, v) = arccos(cosine_similarity(u, v)) / pi
         returns dissimilarity measure [0,2]
     '''
-    return np.arccos(cosine_similarity(u, v))/np.pi
-
+    cosine_similarity = 1 - pairwise_distances(u, v, metric='cosine')
+    return np.arccos(cosine_similarity)/np.pi
 
 def angular_similarity(u, v=None):
     ''' 
         angular similarity between two vectors = 1 - (arccos(cosine_similarity(u, v)) / pi)
         returns similarity measure [-1,1]
     '''
-    return 1 - (np.arccos(cosine_similarity(u, v))/np.pi)
-
+    cosine_similarity = 1 - pairwise_distances(u, v, metric='cosine')
+    return 1 - (np.arccos(cosine_similarity)/np.pi)
 
 def binary_distances(arr, metric='jaccard'):
     ''' returns binary distances '''
     return squareform(pdist(arr, metric=metric))
 
+def rotate_matrix_origin(xy, degrees):
+    """Only rotate a point around the origin (0, 0)."""
+    radians = np.radians(degrees)
+    x, y = xy[:,0], xy[:,1]
+    xx = x * np.cos(radians) + y * np.sin(radians)
+    yy = -x * np.sin(radians) + y * np.cos(radians)
+    return np.hstack([xx[:,np.newaxis], yy[:,np.newaxis]])
 
-def shape_similarity(coords, checkRotation=False, rotations=None):
+def translate_matrix(matrix, translation):
+    # checj if translation is just 1 integer
+    if isinstance(translation, (int, float)):
+        translation = [translation, translation]
+    return matrix + np.array([[translation[0], translation[1]]])
+
+def scale_matrix(matrix, scale):
+    if isinstance(scale, (int, float)):
+        scale = [scale, scale]
+    scale_mtx = np.array([[scale[0], 0], [0, scale[1]]])
+    return np.dot(matrix, scale_mtx)
+
+def shear_matrix(matrix, shear_factor):
+    """
+    Apply a shear transformation to a 2D matrix.
+    Args:
+    matrix (np.array): The 2D matrix to transform.
+    shear_factor (float): The factor by which to shear the matrix.
     
-    '''
-        Computes the pairwise shape similarity between sets of coordinates
-        Uses shape_similarity from shapesimilarity module
+    Returns:
+    np.array: The sheared matrix.
+    """
 
-        Arguments
-        ---------
-        coords : array
-            3D array of shape (num_shapes, x_coords, y_coords) 
-        checkRotation : bool (optional)
-            Default: False
-        rotations : _type_ (optional)
-            Default: None
+    # Validate input
+    if len(matrix.shape) != 2:
+        raise ValueError("Input matrix must be 2D")
+
+    # Create the shear matrix
+    shear_matrix = np.array([[1, shear_factor], [0, 1]])
+
+    # Apply the shear transformation to each coordinate in the matrix
+    return np.dot(matrix, shear_matrix)
+
+
+#-----------------------------------------------------------------------------------------------------------
+# geometry
+# - metric coordinate systems & conversions: cartesian, spherical, cylindrical, polar
+#-----------------------------------------------------------------------------------------------------------
+
+
+def calc_area(points):
+    # expects a numpy array with shape (n_points, n_dimensions)
+    # need more points than the number of dimensions to construct the initial simplex
+    if not (points.shape[0] > points.shape[1]):
+        print('need more rows than columns')
+    try: 
+        return scipy.spatial.ConvexHull(points).volume
+    except:
+        return np.nan
+
+def convex_hull_containment(hull_points, test_point, method='dt'):
+    """
+    Determines if a test point is within the convex hull of a set of points using either
+    Delaunay triangulation ('del') or linear programming ('lp') method.
+
+    Parameters
+    ----------
+    hull_points : array_like
+        An MxN array of M points in N dimensions representing the vertices of the convex hull.
+    test_point : array_like
+        An 1xN array representing the point to test, in the same N dimensions.
+    method : str, optional
+        The method to use for checking point containment:
+        'dt' for Delaunay triangulation (default) or 'lp' for linear programming.
+
+    Returns
+    -------
+    bool
+        True if the test point is within the convex hull, False otherwise.
+
+    Raises
+    ------
+    ValueError
+        If an unsupported method is specified.
+
+    Notes
+    -----
+    - The 'dt' method is generally faster and works well for a large number of dimensions,
+      but may fail for degenerate cases or very high dimensions.
+    - The 'lp' method is more robust and can handle degenerate cases, but may be slower,
+      especially for large datasets or high dimensions.
+
+    """
+    if method == 'dt':
+        # Delaunay triangulation method
+        try:
+            del_tri = Delaunay(hull_points)
+            return del_tri.find_simplex(test_point) >= 0
+        except scipy.spatial.qhull.QhullError:
+            # Handles failures in triangulation, e.g., due to collinearity.
+            return False
+    elif method == 'lp':
+        # Linear programming method
+        dim = hull_points.shape[1]
+        c = np.zeros(hull_points.shape[0])
+        A_eq = np.append(hull_points.T, np.ones((1, hull_points.shape[0])), axis=0)
+        b_eq = np.append(test_point, [1])
+        bounds = [(0, None) for _ in range(hull_points.shape[0])]
+        
+        res = linprog(c, A_eq=A_eq, b_eq=b_eq, bounds=bounds, method='highs')
+        return res.success and res.fun is not None
+    else:
+        raise ValueError("Unsupported method specified. Use 'del' for Delaunay triangulation or 'lp' for linear programming.")
+
+def magnitude_phasor(magnitude, angle, offset=0):
+    ''' 
+    Calculate a vectors phasor representation given its magnitude, angle, and offset
+    x = magnitude * cos(angle + offset)
+    - magnitude: magnitude
+    - angle: angle (in degrees)
+    - offset: offset (in degrees); default=0
+    '''
+    return magnitude * np.cos(np.deg2rad(angle + offset))
+
+def calc_circularity(coords):
+    ''' 
+        calculate the circularity score of a set of coordinates
+        circularity = (4 * np.pi * area) / perimeter ** 2
+        bounded between 0 and 1, where 1 is a perfect circle
+    '''
+    # NOT SURE ABT THIS....
+    # coordinates -> convex hull -> perimeter & area
+    shape = scipy.spatial.ConvexHull(coords)
+    perim = shape.area # when 2d: perimeter...
+    area  = shape.volume # when 2d: area...
+    return (4 * np.pi * area) / perim ** 2
+
+def fit_circle(coords):
+    ''' 
+        fits a circle to the points that minimizes squared loss 
+        returns center, radius, and sum of squared residuals
+    '''
+    # https://scipy-cookbook.readthedocs.io/items/Least_Squares_Circle.html
+
+    def calc_R(xc, yc):
+        """ calculate the distance of each 2D points from the center (xc, yc) """
+        return np.sqrt((coords[:,0] - xc) ** 2 + (coords[:,1] - yc) ** 2)
+
+    def obj(c):
+        """ calculate the algebraic distance between the data points and the mean circle centered at c=(xc, yc) """
+        dists_ = calc_R(*c)
+        return dists_ - dists_.mean()
+
+    # an initial center estimate to start the optimization
+    center_guess = np.mean(coords, axis=0)
+
+    # minimize distances of points to center of mean circle
+    center, ier = optimize.leastsq(obj, center_guess) 
+
+    # figure out the fit
+    xc_2, yc_2 = center
+    dists = calc_R(xc_2, yc_2)
+    radius = np.mean(dists) # radius of ideal circle
+    resids = np.sum((dists - radius) ** 2) #  sum of squares of the diffs between dist of each point to center and mean distance
+
+    return center, radius, resids
+
+def circle_gof(coords, center, radius):
+    ''' 
+        Calculate goodness of fit for a circle
+        Test angle uniformity, distance diff from radius
+        If a circle, expect both tests to be non-significant
+    '''
+
+    # find the polar coordinates of the coords to the center 
+    distances = pairwise_distances(coords, np.array(center)[np.newaxis])
+    degrees = np.rad2deg(np.arctan2(coords[:, 1] - center[1], coords[:, 0] - center[0]))
+    degrees[degrees < 0] += 360
+    radians = np.deg2rad(degrees)
+
+    # null hypothesis: angles are uniformly distributed from 0-360
+    z, zp = circ_vtest(radians)
+
+    # null hypothesis: distances are constant around the circle
+    t, tp = scipy.stats.ttest_1samp(distances.flatten(), popmean=radius)
+
+    return {'angles': [z, zp], 'distances': [t, tp]}
+
+def calc_sphericity(points):
+    # calculate the center of mass of the points
+    center = np.mean(points, axis=0)
+    # calculate the distances of each point from the center
+    distances = np.linalg.norm(points - center, axis=1)
+    # calculate the sphericity score as 1 - (standard deviation / average distance)
+    # ie, spherical points should have low variance in distance from center
+    score = 1 - (np.std(distances) / np.mean(distances))
+    return score
+
+def fit_sphere(X, Y, Z):
+    # https://jekel.me/2015/Least-Squares-Sphere-Fit/
+    # fit a sphere to X, Y, and Z data points
+    # returns the radius and center points of best fit sphere
+
+    X, Y, Z = np.array(X), np.array(Y), np.array(Z)
+
+    # make A matrix
+    A = np.zeros((len(X), 4))
+    A[:,0] = X*2
+    A[:,1] = Y*2
+    A[:,2] = Z*2
+    A[:,3] = 1
+
+    # make f matrix
+    f = np.zeros((len(X), 1))
+    f[:,0] = X**2 + Y**2 + Z**2
+    C, resids, rank, singval = np.linalg.lstsq(A, f) # C = Af
+
+    # solve radius
+    radius = np.sqrt(C[0]**2 + C[1]**2 + C[2]**2 + C[3])
+
+    return radius, C[0], C[1], C[2]
+
+def calc_polar_coords(coords, center):
+
+    # find the polar coordinates of the coords to the center 
+    distances = pairwise_distances(coords, np.array(center)[np.newaxis])
+    degrees = np.rad2deg(np.arctan2(coords[:, 1] - center[1], coords[:, 0] - center[0]))
+    degrees[degrees < 0] += 360
+    radians = np.deg2rad(degrees)
+
+    # stack the distances and radians together into a single array
+    # polar_coords = np.hstack((distances, radians))
+
+    return np.hstack((distances, radians[:,np.newaxis]))
+
+def cart_to_cylindrical(x, y, z):
+    ''' 
+        Convert 3D cartesian coordinates to cylindrical coordinates.
+
+        Parameters
+        ----------
+        x : float
+            x-coordinate in the Cartesian coordinate system.
+        y : float
+            y-coordinate in the Cartesian coordinate system.
+        z : float
+            z-coordinate in the Cartesian coordinate system.
 
         Returns
         -------
-        matrix 
-            symmetrical matrix of similarity between shapes
-
-        [By Matthew Schafer, github: @matty-gee; 2020ish]
+        r : float
+            Distance from the origin to the point in the cylindrical coordinate system.
+        theta : float
+            Angle in the x-y plane, in radians, from the positive x-axis to the projection of the point onto the x-y plane.
+        z : float
+            z-coordinate in the cylindrical coordinate system, unchanged from the input.
     '''
-    n = coords.shape[0]
-    similarity = np.zeros((n, n))
-    for i in range(0, n):
-        crd1 = coords[i,:,:]
-        for j in range(i, n):
-            if i == j: similarity[i,j] = 1
-            else:
-                crd2 = coords[j,:,:]
-                similarity[j,i] = shape_similarity(crd1, crd2, checkRotation=checkRotation, rotations=rotations)
-    similarity = fill_in_upper_tri(sim_mat, 1)
-    return similarity  
+    r = np.sqrt(x**2 + y**2)
+    theta = np.arctan2(y, x)
+    return r, theta, z
 
+def cart_to_spherical(x, y, z):
+    # gotta make sure the convention is correct!
+    """
+        Convert Cartesian coordinates to spherical coordinates.
+        https://en.wikipedia.org/wiki/Spherical_coordinate_system
 
-def shape_overlap(coords):
-    '''
-        Computes percentage overlap between polygons 
-
-        Arguments
-        ---------
-        coords : array
-            3D array of shape (num_shapes, x_coords, y_coords) 
-
+        Parameters
+        ----------
+        x (float or ndarray): x-coordinate(s)
+        y (float or ndarray): y-coordinate(s)
+        z (float or ndarray): z-coordinate(s)
+        
         Returns
         -------
-        matrix 
-            a non-symmetrical matrix of percentage overlap between polygons
+        tuple: radial coordinate `r`, polar angle `theta`, and azimuthal angle `phi` for each point
+        
+        Notes:
+        Expressed in physics ISO notation (math switches theta & phi: see wikipedia link above)
+        The spherical coordinates of a point (x, y, z) in 3D space are given by (r, theta, phi), where:
+        - `rho`: radial distance to origin
+        - `theta`: polar/inclination angle, angle wrt polar axis (z-axis)
+        - `phi`: azimuthal angle, angle of rotation from initial xy/meridian plane
+    """
 
-        [By Matthew Schafer, github: @matty-gee; 2020ish]
-    '''
-    n = coords.shape[0]
-    overlap = np.ones((n, n))
-    for i in range(n):
-        coords1   = coords[i,:,:]
-        vertices1 = sp.spatial.ConvexHull(crd1).vertices
-        poly1     = Polygon(coords1[vertices1])
-        for j in range(n): 
-            if i == j: overlap[i,j] = 1
-            else:
-                coords2     = coords[j,:,:]
-                vertices2    = sp.spatial.ConvexHull(crd2).vertices
-                poly2        = Polygon(coords2[vertices2])
-                overlap[i,j] = poly1.intersection(poly2).area/poly1.area
-    return overlap
+    rho   = np.sqrt(x**2 + y**2 + z**2) 
+    theta = np.arctan2(np.sqrt(x**2 + y**2), z)
+    phi   = np.arctan2(y, x) 
+    return rho, theta, phi
 
+def latlong_to_cart(lat, lon):
+    # https://skeptric.com/calculate-centroid-on-sphere/#geodesic-distance
+    # returns in radians# returns in radians
+    return np.array([np.cos(lat) * np.cos(lon), np.cos(lat) * np.sin(lon), np.sin(lat)])
+
+def cart_to_latlong(x, y, z):
+    # https://skeptric.com/calculate-centroid-on-sphere/#geodesic-distance
+    # returns in radians
+    assert np.all(np.abs((x*x +y*y +z*z) - 1) < 1e-5)
+    lat = np.arcsin(z)
+    lon = np.arctan2(y, x)
+    return np.array([lat, lon])
+
+def geo_dist_sphere(x, y, eps=1e-6):
+    # geodesic distance between two points on a sphere:
+    # https://skeptric.com/calculate-centroid-on-sphere/#geodesic-distance
+    # x & y should be in 3d cartesian coordinates
+    dotprod = y.T @ x
+    assert ((-1 - eps) <= dotprod).all() and (dotprod <= (1 + eps)).all()
+    dotprod = dotprod.clip(-1, 1)
+    return np.arccos(dotprod)
+
+def fit_plane(data, order=1):
+
+    # TODO: add higher-order polynomial fits, evaluate quality etc...
+    # ref: http://inversionlabs.com/2016/03/21/best-fit-surfaces-for-3-dimensional-data.html
+
+    # regular grid covering the domain of the data
+    mn = np.min(data, axis=0)
+    mx = np.max(data, axis=0)
+    X, Y = np.meshgrid(np.linspace(mn[0], mx[0], 20), np.linspace(mn[1], mx[1], 20))
+    XX = X.flatten()
+    YY = Y.flatten()
+        
+    # best-fit linear plane (1st-order)
+    if order == 1:
+        
+        A = np.c_[data[:,0], data[:,1], np.ones(data.shape[0])]
+        C,_,_,_ = scipy.linalg.lstsq(A, data[:,2]) # coefficients
+
+        # evaluate it on grid
+        Z = C[0]*X + C[1]*Y + C[2]
+        # or expressed using matrix/vector product
+        #Z = np.dot(np.c_[XX, YY, np.ones(XX.shape)], C).reshape(X.shape)
+
+    # best-fit quadratic curve (2nd-order)
+    elif order == 2:
+        
+        A = np.c_[np.ones(data.shape[0]), data[:,:2], np.prod(data[:,:2], axis=1), data[:,:2]**2]
+        C,_,_,_ = scipy.linalg.lstsq(A, data[:,2])
+            
+        # evaluate it on a grid
+        Z = np.dot(np.c_[np.ones(XX.shape), XX, YY, XX*YY, XX**2, YY**2], C).reshape(X.shape)
+
+    return X, Y, Z
+    
 
 #---------------------------------------------------------------------------------------------------------
-# Statistics 
+# circular statistics 
 #---------------------------------------------------------------------------------------------------------
 
 # TODO: not sure of the difference between "circular" & "angular" standard deviation
@@ -442,7 +715,6 @@ circ_medtest = pycircstat.medtest # only p-value
 circ_hktest  = pycircstat.hktest
 circ_raotest = pycircstat.raospacing
 circ_wwtest  = pycircstat.watson_williams # anova
-
 
 def circ_rtest(angles, axis=None, weights=None):
     """ 
@@ -494,7 +766,6 @@ def circ_rtest(angles, axis=None, weights=None):
     
     return [z, pval]
 
-
 def circ_vtest(angles, mu=0.0, axis=None, weights=None):
     """ 
     [EDITS: 
@@ -543,7 +814,6 @@ def circ_vtest(angles, mu=0.0, axis=None, weights=None):
                            (15*z + 305*z**3 - 125*z**5 + 9*z**7)/(4608.0*n*n))
     return [z, pval]
 
-
 def circ_symtest(angles, axis=None):
     """
     [EDITED from pycircstat slightly
@@ -576,12 +846,6 @@ def circ_symtest(angles, axis=None):
         T, pval = sp.stats.wilcoxon(d)
 
     return [T, pval]
-
-
-#---------------------------------------------------------------------------------------------------------
-# Correlations & regressions
-#---------------------------------------------------------------------------------------------------------
-
 
 def circ_corrcc(angles1, angles2):
     '''
@@ -616,7 +880,6 @@ def circ_corrcc(angles1, angles2):
     
     return [rho, pval]
 
-
 def circ_corrcc_matrix(df_deg):
     '''
     TODO: speed up
@@ -646,7 +909,6 @@ def circ_corrcc_matrix(df_deg):
         coefs[c,c+1:n] = np.array(corrs).T[0] # get rid of transpose...?
         pvals[c,c+1:n] = np.array(corrs).T[1]
     return coefs, pvals
-
 
 def circ_corrcl(angles, x, axis=None):
     """
@@ -681,7 +943,6 @@ def circ_corrcl(angles, x, axis=None):
     rho = np.sqrt((rxc ** 2 + rxs ** 2 - 2 * rxc * rxs * rcs) / (1 - rcs ** 2))
     pval = 1 - sp.stats.chi2.cdf(len(angles)*rho**2, 2)
     return [rho, pval]
-
 
 class BaseRegressor(object):
     """
@@ -741,7 +1002,6 @@ class BaseRegressor(object):
     def __call__(self, *args, **kwargs):
         assert self.isfit(), "Regressor must be trained first."
         return self.predict(*args, **kwargs)
-
 
 class circ_linear_regression(BaseRegressor):
     """
@@ -813,7 +1073,6 @@ class circ_linear_regression(BaseRegressor):
         )).set_index('test')
         return df 
 
-
 class circ_circ_regression(BaseRegressor):
     """
     [EDITED lightly from pycircstat]
@@ -858,7 +1117,211 @@ class circ_circ_regression(BaseRegressor):
 
 
 #---------------------------------------------------------------------------------------------------------
-# Plotting
+# trajectories
+    # TODO: https://stackoverflow.com/questions/51321100/python-natural-smoothing-splines
+#---------------------------------------------------------------------------------------------------------
+
+
+def calc_pairwise_frechet_distance(traj_data):
+    # calculate pairwise frechet distance between all characters
+    # traj_data: (n_characters, n_trials, n_dimensions)
+    # distance_matrix: (n_characters, n_characters)
+    distance_matrix = np.zeros((traj_data.shape[0], traj_data.shape[0]))
+    for i, j in itertools.combinations(range(traj_data.shape[0]), 2):
+        distance_matrix[i, j] = distance_matrix[j, i] = frdist(traj_data[i], traj_data[j])
+    return distance_matrix
+
+def undirected_hausdorff(U, V):
+    # calculate hausdorff distance between two arrays, un-directed 
+    # aximum of the directed Hausdorff distance from A to B and the directed Hausdorff distance from B to A
+    # symmetric measure of the distance between two sets of points
+    return max(directed_hausdorff(U, V)[0], directed_hausdorff(V, U)[0])
+
+def pairwise_trajectory_distances(trajectories, metric='euclidean'):
+
+    # calculate some notion of distance between different trajectories...
+
+    # arguments:
+    # - trajectories: (n_trajectories, n_points, n_dimensions)
+    # - metric: what to compute
+    # returns: distance_matrix with shape = (n_trajectories, n_trajectories)
+    
+    n_trajs = trajectories.shape[0]
+    distance_matrix = np.zeros((n_trajs, n_trajs))
+    for i, j in itertools.combinations(range(n_trajs), 2):
+        if metric == 'frechet':      d = frdist(trajectories[i], trajectories[j])
+        elif metric == 'dtw':        d = fastdtw(trajectories[i], trajectories[j], dist=euclidean)[0]
+        elif metric == 'hausdorff':  d = undirected_hausdorff(trajectories[i], trajectories[j])
+        elif metric == 'procrustes': d = procrustes(trajectories[i], trajectories[j])[2]
+        else:                        d = np.nanmean(cdist(trajectories[i], trajectories[j], metric=metric).diagonal()) # pairwise or elementwise?
+        distance_matrix[i,j] = distance_matrix[j,i] = d
+    return distance_matrix
+
+
+#---------------------------------------------------------------------------------------------------------
+# alternative distance metrics
+#---------------------------------------------------------------------------------------------------------
+
+
+def pairwise_annak_distances(X):
+    n = len(X)
+    annak_sim = np.zeros((n, n))
+    X_rank = scipy.stats.rankdata(X) 
+    for i in range(n):
+        for j in range(n):
+            if i < j:
+                annak_sim[i,j] = annak_sim[j,i] = np.mean([X_rank[i], X_rank[j]]) / n
+            elif i==j:
+                annak_sim[i,j] = 1
+    annak_dist = 1 - annak_sim
+    return annak_dist
+
+def pairwise_area_difference(coords):
+    """
+    Compute the pairwise hypervolume difference for a set of shapes.
+    
+    Args:
+    coords (np.array): Coordinates representing shapes (n_subs, n_points, n_dimensions).
+    
+    Returns:
+    np.array: Hypervolume difference matrix (n_subs, n_subs).
+    """
+    n_obs = coords.shape[0]
+    diff_matrix = np.zeros((n_obs, n_obs))
+    for i in range(n_obs):
+        hull_i   = ConvexHull(coords[i])
+        volume_i = hull_i.volume
+        for j in range(i + 1, n_subs):
+            hull_j   = ConvexHull(coords[j])
+            volume_j = hull_j.volume
+            diff_matrix[i, j] = diff_matrix[j, i] = abs(volume_i - volume_j)
+    return diff_matrix
+
+def pairwise_frdist(coords):
+    """
+    Compute the pairwise Frechet distance for a set of shapes.
+    
+    Args:
+    coords (np.array): Coordinates representing shapes (n_obs, n_points, n_dimensions).
+    
+    Returns:
+    np.array: Frechet distance matrix (n_obs, n_obs).
+    """
+    n_obs = coords.shape[0]
+    frdist_matrix = np.zeros((n_obs, n_obs))
+    for i in range(n_obs):
+        for j in range(i + 1, n_obs):
+            frdist_matrix[i, j] = frdist_matrix[j, i] = frdist(coords[i], coords[j])
+    return frdist_matrix
+
+def pairwise_area_overlap(coords):
+    """
+        Compute the pairwise hypervolume overlap for a set of shapes.
+        
+        Args:
+        coords (np.array): Coordinates representing shapes (n_obs, n_points, n_dimensions).
+        
+        Returns:
+        np.array: Hypervolume overlap matrix (n_obs, n_obs).
+    """
+    
+    n_obs = len(coords)
+    overlap_matrix = np.ones((n_obs, n_obs))
+    
+    for i in range(n_obs):
+
+        hull_i     = ConvexHull(coords[i])
+        vertices_i = hull_i.vertices 
+        polygon_i  = Polygon(coords[i][vertices_i])
+        area_i     = hull_i.volume
+
+        for j in range(i + 1, n_obs):
+
+            hull_j     = ConvexHull(coords[j])
+            vertices_j = hull_j.vertices 
+            polygon_j  = Polygon(coords[j][vertices_j])
+            area_j     = hull_j.volume
+
+            overlap_area = polygon_i.intersection(polygon_j).area
+            overlap_matrix[i, j] = overlap_matrix[j, i] = overlap_area / area_i
+    
+    overlap_matrix = np.round(overlap_matrix, 2)
+    overlap_matrix = (overlap_matrix + overlap_matrix.T) / 2  # symmetrize
+    assert np.all(overlap_matrix <= 1), 'overlap matrix has values > 1'
+    
+    return overlap_matrix
+
+
+#---------------------------------------------------------------------------------------------------------
+# topology
+#---------------------------------------------------------------------------------------------------------
+
+
+def calc_mapper_graph(coords,
+                      scaler=MinMaxScaler(), 
+                      projection=LocallyLinearEmbedding(n_components=2, n_neighbors=10),
+                      cover=km.Cover(n_cubes=5, perc_overlap=0.25), 
+                      clusterer=KMeans(n_clusters=5)):
+    
+    """
+        Creates a mapper graph to visualize the topology of high-dimensional data
+
+        Parameters:
+        -----------
+        coords : numpy.ndarray
+            The data points to be visualized, with shape (n_samples, n_features).
+
+        scaler : object, default=MinMaxScaler()
+            The scaler object to use to preprocess the data before projection.
+        
+        projection : object, default=LocallyLinearEmbedding(n_components=2, n_neighbors=10)
+            The projection object to use to reduce the dimensionality of the data.
+
+        cover : object, default=km.Cover(n_cubes=5, perc_overlap=0.25)
+            The cover object to use to divide the projected space into overlapping hypercubes.
+
+        clusterer : object, default=KMeans(n_clusters=5)
+            The clustering object to use to assign data points to nodes in the mapper graph.
+
+        Returns:
+        --------
+        graph : dict
+            The mapper graph, represented as a dictionary with keys "nodes" and "links". 
+            The "nodes" value is a list of dictionaries, where each dictionary represents a node in the graph. 
+            The "links" value is a list of dictionaries, where each dictionary represents a link between two nodes in the graph.
+    """
+
+    mapper = km.KeplerMapper(verbose=0)
+    projected = mapper.fit_transform(coords, scaler=scaler, 
+                                     projection=projection, 
+                                     distance_matrix=False)
+    return mapper.map(projected, coords, cover=cover, clusterer=clusterer)
+
+def betti_summary(H):
+    try: 
+        persistence = H[:,1] - H[:,0]
+        return [np.max(persistence), len(H)]
+    except: 
+        return [np.nan, np.nan]
+
+def diagram_amplitude(dgm):
+    # amplitudes
+    if dgm.ndim == 2: dgm = dgm[None, :, :] # expects 3d input
+    n_dims = len(np.unique(dgm[:,:,2]))
+    amp_df = pd.DataFrame(columns=['metric'] + [f'amplitude{i}' for i in range(n_dims)])
+    for metric in ['betti', 'wasserstein', 'landscape', 'silhouette', 'persistence_image']:
+        ampl = Amplitude(metric=metric, order=None).fit_transform(dgm)
+        amp_df.loc[len(amp_df),:] = [metric] + ampl.tolist()[0]
+    return amp_df
+
+def gtda_to_ripser_diagram(dgm):
+    # go from gtda to ripser format
+    # note: ripser includes the infinitely persisting feature for dim 0
+    return [dgm[dgm[:,2] == d] for d in np.unique(dgm[:,2])]
+
+
+#---------------------------------------------------------------------------------------------------------
+# plotting
 #---------------------------------------------------------------------------------------------------------
 
 
@@ -888,12 +1351,10 @@ def vector_plot(ax, xy_comp, xy_unit, cluster_ids=None):
     b.set_color('black')
     b.set_linewidth(1)   
 
-
 def random_colors(num_colors=10):
     from random import randint
     colors = ['#%06X' % randint(0, 0xFFFFFF) for i in range(num_colors)]
     return colors
-
 
 def cluster_vector_plot(a, r, cluster_ids=None):
     '''
@@ -906,7 +1367,6 @@ def cluster_vector_plot(a, r, cluster_ids=None):
         colors_ = [colors[c] for c in cluster_ids]
     xy_comp, xy_unit = circ_vectors(a, r)
     vector_plot(xy_comp, xy_unit, color=colors_)
-
 
 def circular_hist(ax, x, color='blue', n_bins=16, density=True, offset=0, gaps=True):
     """

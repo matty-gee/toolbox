@@ -27,18 +27,19 @@ import matplotlib.patches as mpatches
 import seaborn as sns
 
 # my modules
-from utils import get_unique
+from general_utils import get_unique
 
 #--------------------------------------------------------------------------------------------
 # linear decomposition: e.g., factor analysis, principle components analysis
 #--------------------------------------------------------------------------------------------
 
 # TODO: refactor w/ more sklearn like api
-class Decompose(object):
+
+class FactorAnalysis(object):
 
     '''[By Matthew Schafer; github: @matty-gee; 2020ish]'''
         
-    def __init__(self, algorithm):
+    def __init__(self, algorithm=None):
         '''
             Initialize a dimensionality reduction object
 
@@ -52,7 +53,7 @@ class Decompose(object):
             ValueError : 
                 If algorithm isn't in accepted algorithm list
         '''
-        self.alg = algorithm        
+        self.alg = algorithm or 'efa'     
         if self.alg not in ['efa', 'pca']:
             raise ValueError("Select a dimensionality reduction algorithm from this list: 'efa', 'pca'")
         self.fitted = False  
@@ -62,30 +63,26 @@ class Decompose(object):
     # Preprocessing
     #-----------------------------------------------------------------------
     
-    def preprocess(self, df): 
+    def preprocess(self, df):
         ''' 
             Some simple preprocesssing of dataframe:
                 1. Replace nans w/ 0s
                 2. Ensure data are floats
                 3. Output data shape: (observations/subjects, features/variables matrix)
         '''
-        num_features_raw = df.shape[1]
+        n_features_raw = df.shape[1]
         
-        # deal with nans/missingness: most of nans will mean something like '0' - since prolific data should be complete... 
         df = df.fillna(value=0) # nans -> 0s 
-
-        # remove non-numeric features
-        df = df.loc[:, np.sum(df.applymap(lambda x: isinstance(x, (int, float))), axis=0) == df.shape[0]] 
-
-        # remove features with no variance
-        df = df.loc[:, df.var() > 0] 
+        df = df.loc[:, np.sum(df.applymap(lambda x: isinstance(x, (int, float))), axis=0) == df.shape[0]] # remove non-numeric features        
+        df = df.loc[:, df.var() > 0] # remove features with no variance
 
         # assign data, observation, feature names
         self.X = df.values
         self.observations = df.index.values
+        self.n_observations = len(self.observations)
         self.features = df.columns.values
-        print('Preprocessing removed', num_features_raw-len(self.features), 'features, leaving',\
-              len(self.observations), 'observations over', len(self.features), 'features')
+        self.n_features = len(self.features)
+        print(f'Preprocessing removed {n_features_raw-self.n_features} features, leaving {self.n_observations} observations over {self.n_features} features')
         
         if self.corr_matrix is not None:
             self.corr_matrix.index = self.corr_matrix.columns # ensure index is filled in
@@ -101,7 +98,7 @@ class Decompose(object):
         for feat in features:
             if any((c not in set('0123456789')) for c in feat.split('_')[1]): # so we can have subscales easily
                 # ultimately plot w/ flexible coloring - e.g., if share first prefix then make colors in same family...
-                feature_groups.append('_'.join(feat.split('_')[0:2]))
+                feature_groups.append(('_').join(feat.split('_')[:2]))
             else:
                 feature_groups.append(feat.split('_')[0])
         feature_groups = pd.unique(feature_groups)
@@ -117,14 +114,16 @@ class Decompose(object):
         self.X = imp.fit(self.X).transform(self.X)    
         self.auto_preprocess() 
         
-    def standardize_data(self):
-        """ Standardize data: mean 0, unit variance """
-        self.X_rescaled = StandardScaler().fit_transform(self.X)
+    def standardize(self, X):
+        return (X - np.nanmean(X)) / np.nanstd(X)
      
+    #-----------------------------------------------------------------------
+    # Assumptions/Validity
+    #-----------------------------------------------------------------------
+
     def kmo_test(self):
         """  Meyer-Kaiser-Olkin test: is data suitable for factor analysis or not """
-        _, kmo_model = calculate_kmo(self.X)
-        return kmo_model
+        return calculate_kmo(self.X)[1]
         
     def bartletts_test(self):
         """
@@ -162,30 +161,29 @@ class Decompose(object):
         else:
             n, p = self.X.shape # num of obs (rows), num of features (columns)
             x_corr = np.corrcoef(self.X)
-        corr_det = np.linalg.det(x_corr)
+        corr_det  = np.linalg.det(x_corr)
         statistic = -np.log(corr_det) * (n - 1 - (2 * p + 5) / 6)
-        dof = p * (p - 1) / 2
-        p_value = chi2.sf(statistic, dof)
-        return p_value
+        dof       = p * (p - 1) / 2
+        return chi2.sf(statistic, dof) # p-value
     
-    def validate_fa_pca(self):
+    def validate(self):
         """ Minimal tests to ensure pca/fa can be performed """
-        print('\nSome tests to determine if FA/PCA should be performed:')
+        print('\nSome tests to determine if FA should be performed:')
         if not self.is_corr_matrix:
             # not sure how to adapt this to heterogeneous correlation matrix
             kmo_model = self.kmo_test() 
             if kmo_model > .60:
-                print(f'- KMO test: {np.round(kmo_model,4)} (>.60) - continue fitting fa/pca') 
+                print(f'- KMO test: {kmo_model:3f} (>.60) - continue fitting fa/pca') 
             else: 
-                print(f'- KMO test: {np.round(kmo_model,4)} (<.60) - reconsider fa/pca') 
-        p_val = self.bartletts_test()
-        if p_val < .05:
-            print(f'- Barletts test of sphericity: p={np.round(p_val,4)} - continue fitting fa/pca')
+                print(f'- KMO test: {kmo_model:3f} (<.60) - reconsider fa/pca') 
+        p = self.bartletts_test()
+        if p < .05:
+            print(f'- Reject null for Barletts test of sphericity: p={p:3f} - continue fitting')
         else: 
-            print(f'- Barletts test of sphericity: p={np.round(p_val,4)} - reconsider fa/pca')
+            print(f'- Cant reject null for Barletts test of sphericity: p={p:3f} - reconsider')
             
     #-----------------------------------------------------------------------
-    # Unsupervised reduction
+    # Dimensionality reduction
     #-----------------------------------------------------------------------
     
     def fit_transform(self, df, num_comps=3, corr_matrix=None, rotation=None, cfa_dict=None):
@@ -219,12 +217,9 @@ class Decompose(object):
         """
         from sklearn.decomposition import PCA
 
-        # standardize data 
-        self.standardize_data()
-        
         # create, fit & transform 
         self.model = PCA(n_components=self.num_comps) 
-        self.X_reduced = self.model.fit(self.X_rescaled).transform(self.X_rescaled) 
+        self.X_reduced = self.model.fit_transform(self.standardize(self.X)) 
 
         # eigvecs/components: directions of maximum variance in data - correlations of features w/ components; org. by explained varianc
         self.eigvecs = self.model.components_ # components x features matrix
@@ -283,61 +278,66 @@ class Decompose(object):
         self.communalities = pd.DataFrame(self.model.get_communalities(), index=self.features, columns=['sum-of-squares_loadings']) 
         
         # loadings 
-        self.loadings = self.model.loadings_ # loading matrix (features x factors): transformation of latent to observed variables (correlations of features w/ components)
+        # - features x factors: transformation of latent to observed variables (correlations of features w/ components)
+        self.loadings = self.model.loadings_
         self.get_mean_loadings()
         
         # transform data: coordinates of each observation on components/dimensions
-        # - calculation: X_reduced = np.dot(((X-X_mean)/X_std), np.linalg.solve(corrmat, loadings))
-        if self.is_corr_matrix:
-            X_scaled = (self.X - np.nanmean(self.X)) / np.nanstd(self.X)
-            weights = np.linalg.solve(self.corr_matrix, self.loadings)
-            self.X_reduced = np.dot(X_scaled, weights)
-        else:
-            self.X_reduced = self.model.transform(self.X)
+        self.X_reduced, self.weights = self.transform(self.X, return_weights=True)
             
-    def efa_partial(self, thresh=75):
+    def transform(self, X, return_weights=False):
+
+        # transform data: coordinates of each observation on components/dimensions
+        # - calculation: X_reduced = np.dot(((X-X_mean)/X_std), np.linalg.solve(corrmat, loadings))
+        
+        if self.alg == 'efa' and self.is_corr_matrix:
+            weights   = np.linalg.solve(self.corr_matrix, self.loadings)
+            X_reduced = np.dot(self.standardize(X), weights)
+        elif self.alg in ['efa', 'pca']:
+            X_reduced = self.model.transform(X)
+        return (X_reduced, weights) if return_weights else X_reduced
+    
+    def efa_partial(self, thresh=75, plot=False):
         ''' fit an exploratory factor analysis to a subset of the features '''
         if self.fitted:
             
             # organize each item by top factor it loads onto
             abs_loading = pd.DataFrame(np.abs(self.loadings), 
                                        index=[self.features], 
-                                       columns=['factor_' + str(f) for f in np.arange(1, self.num_comps+1)])
+                                       columns=[f'factor_{f}' for f in np.arange(1, self.num_comps+1)])
             top_factors = abs_loading.idxmax(axis=1).values
 
             # keep the items that are above some threshold for their top factor
-            partial_items = []
-            items_incl = []
+            partial_items, items_incl = [], []
             for f in np.arange(0, self.num_comps):
-                items_mask = top_factors == 'factor_' + str(f+1)
+                items_mask = top_factors == f'factor_{f + 1}'
                 factor_items = self.features[items_mask]
                 factor_loadings = self.loadings[:,f][items_mask]
                 items = list(factor_items[np.abs(factor_loadings) > np.percentile(np.abs(factor_loadings), thresh)]) # threshold
                 partial_items.append(items)
                 items_incl += items
             incl_mask = np.isin(self.features, items_incl)
-            
+
             # transform data with this subset of items
-            loadings_  = self.loadings[incl_mask, :]
-            corr_matrix_ = pd.DataFrame(self.corr_matrix, columns=self.features).iloc[incl_mask, incl_mask]
-            X_ = self.X[:, incl_mask]   
+            X_ = self.X[:, incl_mask]
             X_scaled_ = (X_ - np.nanmean(X_, axis=0)) / np.nanstd(X_, axis=0)
-            weights_  = np.linalg.solve(corr_matrix_, loadings_)
+            corr_matrix_ = pd.DataFrame(self.corr_matrix, columns=self.features).iloc[incl_mask, incl_mask]
+            weights_ = np.linalg.solve(corr_matrix_, self.loadings[incl_mask, :])
             self.X_partial_reduced = np.dot(X_scaled_, weights_)
 
             # plot the correlation between original transform & this reducd one
-            fig,axs = plt.subplots(1, self.num_comps, figsize=(5*self.num_comps, 4))
-            for f in np.arange(0, self.num_comps):
-                sns.regplot(x=self.X_partial_reduced[:,f], y=self.X_reduced[:,f], ax=axs[f],
-                            scatter_kws = {'color': 'purple', 'alpha': 0.3},
-                            line_kws = {'color':'purple', 'alpha': 0.3, 'lw':3})
-                axs[f].set_title('factor ' + str(f+1))
-            
-            # maybe make this a dictionary instead...
+            if plot:
+                fig, axs = plt.subplots(1, self.num_comps, figsize=(5*self.num_comps, 4))
+                for f in np.arange(0, self.num_comps):
+                    sns.regplot(x=self.X_partial_reduced[:,f], y=self.X_reduced[:,f], ax=axs[f],
+                                scatter_kws = {'color': 'purple', 'alpha': 0.3},
+                                line_kws = {'color':'purple', 'alpha': 0.3, 'lw':3})
+                    axs[f].set_title(f'factor {f + 1}')
+
             return partial_items
         else:
             print('The EFA model must be fit first')
-            
+
     def cfa(self, cfa_dict):
         ''' Confirmatory factor analysis
             TODO: needs a lot of work to make functional
@@ -368,37 +368,7 @@ class Decompose(object):
     #     self.mixing_matrix = ica.mixing_ 
         
     #     # reconstruct - how much info is lost?
-    #     self.X_restored = ica.inverse_transform(self.X_reduced)
-    
-    # def mca(self):
-    #     """
-    #         Multiple Correspondence Analysis for categorical data
-    #         try this instead: https://github.com/MaxHalford/prince#multiple-correspondence-analysis-mca
-    #     """
-    #     import prince
-    #     mca = prince.MCA()
-    #     mca.fit(X)
-    #     mca.transform(X)        
-
-    def mds(self): 
-        """
-            Multidimensional Scaling
-            Goal: reduce dimensions while preserving distance between data points
-        """        
-        # get digitized rdm
-        if not self.is_corr_matrix:
-            rdm = 1 - np.corrcoef(self.data)
-        else:
-            rdm = 1 - self.X
-        digitized_rdm = self.digitize_rdm(rdm)
-        
-        # create & fit mds object
-        num_comp = 3
-        mds = MDS(n_components=num_comp, dissimilarity="precomputed", random_state=0)  
-        results = mds.fit(digitized_rdm)
-        
-        # plot
-        self.mds_plot(results, num_comp)
+    #     self.X_restored = ica.inverse_transform(self.X_reduced)     
 
     #-----------------------------------------------------------------------
     # Plotting
@@ -406,8 +376,8 @@ class Decompose(object):
 
     def get_mean_loadings(self):
         """ """
-        self.mean_loadings = pd.DataFrame([np.mean(self.loadings[ixs[0]:ixs[1],:],axis=0) for fg, ixs in self.feature_groups_bins.items()], 
-                                     columns=['component ' + str(c) for c in np.arange(1, self.loadings.shape[1]+1)])
+        self.mean_loadings = pd.DataFrame([np.mean(self.loadings[ixs[0]:ixs[1], :], axis=0) for fg, ixs in self.feature_groups_bins.items()], 
+                                          columns=[f'component {c}' for c in np.arange(1, self.loadings.shape[1]+1)])
         self.mean_loadings.insert(0, 'feature_group', [fg for fg, ixs in self.feature_groups_bins.items()])
     
     def get_corrmats(self, refit=False):
@@ -421,11 +391,7 @@ class Decompose(object):
             self.corr_matrix = np.corrcoef(np.transpose(self.X))
         self.reproduced_corr_matrix = np.matmul(self.loadings, self.loadings.T)
         self.residuals = self.corr_matrix - self.reproduced_corr_matrix
-        
-        #         if refit: 
-        #             self.reproduced_corr_matrix_partial = np.matmul(self.loadings, self.loadings.T)
-        #             self.residuals_partial = self.corr_matrix - self.reproduced_corr_matrix
-        
+
     def plot_corrmat(self, plot='features', cmap="plasma", refit=False, figsize=(10,10)):
         """ use perceptually uniform sequential cmaps: 'viridis', 'plasma', 'inferno', 'magma', 'cividis' """
         
@@ -459,8 +425,8 @@ class Decompose(object):
         cax = ax.imshow(corr_matrix, cmap=cmap, vmax=1, vmin=-1)
 
         # x-axis: individual features
-        ax.set_xticks(np.arange(X.shape[1])[0::4])
-        ax.set_xticklabels(features[0::4], rotation=90, fontsize=11)
+        ax.set_xticks(np.arange(X.shape[1])[::4])
+        ax.set_xticklabels(features[::4], rotation=90, fontsize=11)
 
         # y-axis 
         if len(feature_groups) < len(features)/5: # if there are groupings to the features...
@@ -469,8 +435,8 @@ class Decompose(object):
             # ax.vlines([ixs[0] for fg, ixs in self.feature_groups_bins.items()], 0, self.X.shape[1]-1)
             # ax.hlines([ixs[0] for fg, ixs in self.feature_groups_bins.items()], 0, self.X.shape[1]-1)
         else:
-            ax.set_yticks(np.arange(X.shape[1])[0::4])
-            ax.set_yticklabels(features[0::4], fontsize=11)
+            ax.set_yticks(np.arange(X.shape[1])[::4])
+            ax.set_yticklabels(features[::4], fontsize=11)
 
         plt.title(title, fontsize=25)
         cbar = fig.colorbar(cax, ticks=[-1, 0, 1], aspect=40, shrink=.8)
@@ -515,20 +481,19 @@ class Decompose(object):
         ax.w_zaxis.set_ticklabels([])
         plt.show()
         
-    def plot_loadings(self, num_comps=3, colors=None, labels=None):
+    def plot_loadings(self, num_comps=3, colors=None, component_names=None, labels=None, figsize=(20,5)):
         """ plot the component loadings barplot """
 
         # add errors if its for wrong dim reduction method
-        if num_comps < self.num_comps:
-            num_comps = self.num_comps
+        num_comps = max(num_comps, self.num_comps)
 
-        # color diff questionnaires diff
+        # color different questionnaires
         if colors is None:
             colors = ['red', 'blue', 'purple', 'green', 'lavender', 'grey', 'fuchsia', 'orange', 'dodgerblue', 
-                    'yellow', 'orchid', 'indigo', 'aqua','palegreen', 'silver', 'plum', 'fuchsia', 'coral',
-                    'gold', 'pink','slategray', 'forestgreen','peachpuff','honeydew','brown','olivedrab',
-                    'darkturquoise', 'tan', 'springgreen', 'mintcream','navajowhite','chocolate','lightblue','chartreuse',
-                    'lime','yellowgreen','khaki','gold','teal','tomato']
+                     'yellow', 'orchid', 'indigo', 'aqua','palegreen', 'silver', 'plum', 'fuchsia', 'coral',
+                     'gold', 'pink','slategray', 'forestgreen','peachpuff','honeydew','brown','olivedrab',
+                     'darkturquoise', 'tan', 'springgreen', 'mintcream','navajowhite','chocolate','lightblue','chartreuse',
+                     'lime','yellowgreen','khaki','gold','teal','tomato']
         colors_ = pd.DataFrame([None]*len(self.features))
         for f,(fg, ixs) in enumerate(self.feature_groups_bins.items()):
             colors_[ixs[0]:ixs[1]+1] = colors[f]
@@ -536,26 +501,23 @@ class Decompose(object):
         self.item_colors = colors_
 
         # for legend
-        if labels is None:
-            labels = [fg for fg, ixs in self.feature_groups_bins.items()]
+        if labels is None: labels = [fg for fg, ixs in self.feature_groups_bins.items()]
         patches = [mpatches.Patch(facecolor=inst[0], edgecolor='black', 
-                                label=inst[1]) for inst in zip(colors, labels)]
+                                  label=inst[1]) for inst in zip(colors, labels)]
 
-        # for ylim
-        ymax = np.round(np.max(self.loadings),1)+.05  
+        # separate plot for each component
+        if component_names is None: component_names = [f'Component {c+1}' for c in range(num_comps)]
+        ymax = np.round(np.max(self.loadings),1)+.05
         for c in range(num_comps):
-            loadings_ = self.loadings[:, c]
-            fig, ax = plt.subplots(figsize=(20, 5))
-            ax.bar(np.arange(len(loadings_)), loadings_, color=colors_, edgecolor = 'black')
+            fig, ax = plt.subplots(figsize=figsize)
+            ax.bar(np.arange(len(self.loadings[:, c])), self.loadings[:, c], color=colors_, edgecolor='black')
             ax.legend(handles=patches, loc='upper right', 
-                    frameon=False, bbox_to_anchor=(1.15, 1), borderaxespad=0,
-                    prop={'size': 14})
-            
+                      frameon=False, bbox_to_anchor=(1.15, 1), borderaxespad=0, prop={'size': 14})
             plt.xlim(-5,len(self.features)+5)
             plt.ylim(-1,1)
             plt.xticks(fontsize=14)
             plt.yticks(fontsize=14)
-            plt.title(f'Component {c+1} ({np.round(self.exp_var[c]*100, 2)} % explained)', fontsize=20)
+            plt.title(f'{component_names[c]} ({np.round(self.exp_var[c]*100, 2)} % explained)', fontsize=20)
             plt.show()
                 
 
@@ -591,13 +553,14 @@ class Decompose(object):
             #     ax.set_title('Loadings averaged across feature groups', fontsize=20)
             #     plt.show()
             
-    def plot_components(self, figsize=(20, 20)):
+    def plot_components(self, figsize=(20,20)):
         '''
             plot the components/eigenvectors: directions of maxmimum variance
         '''
         # plot by feature
-        vmax = np.abs(self.eigvecs).max() # max eigenvector value
+
         fig, ax = plt.subplots(figsize=figsize+figsize/2)
+        vmax = np.abs(self.eigvecs).max()
         ax.imshow(np.array(self.eigvecs).T, cmap="RdBu_r", vmax=vmax, vmin=-vmax)
 
         if len(self.feature_groups) < len(self.features)/5:
@@ -635,28 +598,11 @@ class Decompose(object):
 
         self.mean_components = mean_components
             
-    def digitize_rdm(self, rdm_raw, n_bins=10): 
-        """
-            digitize an input matrix to n bins (10 bins by default)
-            rdm_raw: a symmetrical, square matrix 
-        """
-        rdm_bins = [np.percentile(np.ravel(rdm_raw), 100/n_bins * i) for i in range(n_bins)] # compute the bins 
-        rdm_vec_digitized = np.digitize(np.ravel(rdm_raw), bins = rdm_bins) * (100 // n_bins) # Compute the vectorized digitized value 
-        rdm_digitized = np.reshape(rdm_vec_digitized, np.shape(rdm_raw)) # Reshape to matrix
-        rdm_digitized = (rdm_digitized + rdm_digitized.T) / 2  # Force symmetry in the plot
-        return rdm_digitized
-
-    def output(self, output_dir=''):
-        if not self.fitted:
-            raise Exception('The model is not fitted. Run model.fit_transform first.')
-        if self.rotation is not None:
-            out_file = f'{output_dir}/{self.alg}_{self.num_comps}comps_{self.rotation}_{len(self.features)}features_n{len(self.observations)}.pkl'
-        else:
-            out_file = f'{output_dir}/{self.alg}_{self.num_comps}comps_{len(self.features)}features_n{len(self.observations)}.pkl'
-        pickle_file(self, out_file)
+    def output(self):
+        return {'X': self.X, 'corr_matrix': self.corr_matrix, 'features': self.features, 
+                'loadings': self.loadings, 'weights': self.weights, 'eigvals': self.eigvals}
 
 
-# PCA specific
 def plot_pca_2d(X):
     pca = PCA(n_components=2).fit(X)
     plt.scatter(X[:, 0], X[:, 1], alpha=0.3, label="samples")
@@ -676,367 +622,18 @@ def plot_pca_2d(X):
     )
     plt.legend()
     plt.show()
-  
-def pca_reconstruction(X, pca, n_comps):
-    # https://stats.stackexchange.com/questions/229092/how-to-reverse-pca-and-reconstruct-original-variables-from-several-principal-com
-
-    pca_embedding = pca.transform(X)
-    X_mu = np.mean(X, axis=0)
-    X_hat = np.dot(pca_embedding[:,:n_comps], pca.components_[:n_comps,:]) + X_mu
-    return X_hat
 
 
 #--------------------------------------------------------------------------------------------
 # linear cross decomposition: e.g., partial least squares, canonical correlation analysis
-#--------------------------------------------------------------------------------------------
-
-
-class CrossDecompose(object):
-
-    '''[By Matthew Schafer; github: @matty-gee; 2020ish]'''
-    
-    def __init__(self, n_comps=2, scale=True, mode='pls'):
-
-        self.n_comps = n_comps
-        self.comp_range = range(1, n_comps+1)
-        self.scale = scale
-        self.fitted = False
-        self.mode = mode
-        self.errors = []
-
-        if mode == 'cca':
-            # symmetric deflation of X & Y 
-            self.model = CCA
-        elif mode == 'pls_canonical':
-            self.model = PLSCanonical
-            # canonical pls is also symmetric but may outperform cca when n_features > n_samples
-            # can only find n_components <= min(n_samples, n_features)
-        elif mode == 'pls':
-            # asymmetric deflation of X & Y
-            self.model = PLSRegression
-
-    def check_input(self, X, Y):
-        # if not a dataframe, then create list for index
-        if not isinstance(X, pd.DataFrame):
-            X = pd.DataFrame(X, columns=[f'X{i}' for i in range(1,X.shape[1]+1)])
-        if Y is not None:
-            if not isinstance(Y, pd.DataFrame):
-                if isinstance(Y, pd.Series): 
-                    Y = Y.to_frame() # turn into a dataframe
-                else: 
-                    if len(Y.shape) == 1: Y = Y.reshape(-1,1)
-                    Y = pd.DataFrame(Y, columns=[f'Y{i}' for i in range(1,Y.shape[1]+1)])
-        return X, Y
-
-    def fit(self, X, Y, n_comps=None):
-
-        X, Y = self.check_input(X, Y)
-
-        # if n_comps or scal are none use self
-        if n_comps is None: 
-            n_comps = self.n_comps
-        
-        # check if n_comps is valid
-        if self.mode in ['cca', 'pls_canonical']:
-            max_n_comps = min(X.shape[0], X.shape[1], Y.shape[1])
-            if not n_comps <= max_n_comps:
-                print(f'n_comps must be <= min(n_samples, n_features, n_targets); changing to {max_n_comps}')
-                n_comps = max_n_comps
-
-        # come up with as simple & useful a data storage scheme as possible....
-        self.model_ = self.model(n_components=n_comps, scale=self.scale)
-        self.model_.fit(X, Y)
-        self.fitted = True
-        self.X_transformed, self.Y_transformed = self.model_.transform(X, Y)
-
-        #---------------------------------------------------------------
-        # canonical covariates (i.e., scores)
-        # - rotations are the projection matrices for each dataset
-        # - project the datasets into the canonical/shared space to get canonical covariates
-        #---------------------------------------------------------------
-
-        X_cc, Y_cc = self.model_.x_scores_, self.model_.y_scores_
-        
-        self.X_scores = pd.DataFrame(X_cc, columns=[f'X_CC0{i}' for i in range(1, n_comps+1)])
-        self.Y_scores = pd.DataFrame(Y_cc, columns=[f'Y_CC0{i}' for i in range(1, n_comps+1)])
-
-        self.X_rotations = self.model_.x_rotations_
-        self.Y_rotations = self.model_.y_rotations_
-        
-        # scores should equal the rotations multiplied by the scores
-        # try: 
-        #     assert np.allclose(X @ self.X_rotations, X_cc, rtol=0.01), 'X @ x_rotations != X_rotated'
-        #     assert np.allclose(Y @ self.Y_rotations, Y_cc, rtol=0.01), 'Y @ y_rotations != Y_rotated'
-        # except AssertionError as e:
-        #     self.errors.append(repr(e))
-
-        #---------------------------------------------------------------
-        # canonical correlations: correlations between X & Y canonical covariates
-        # - statsmodels: cca.cancorr_
-        #---------------------------------------------------------------
-
-        can_corrs = np.corrcoef(X_cc.T, Y_cc.T).diagonal(offset=n_comps)
-        self.can_corrs = pd.DataFrame(can_corrs, 
-                                      columns=['can_corr'], 
-                                      index=[f'CC0{i}' for i in range(1, n_comps+1)])
-
-        #---------------------------------------------------------------
-        # weights: translate the [deflated] X & Y matrices to X & Y scores
-
-        # - X_deflated @ X_weights = X_scores
-        # - deflated matricces are ones with previous variance accounted for subtracted out
-        # - CCA has symmetrical deflation, PLS is asymmetrical (X only)
-        # - weights are not very interpretable; better to use loadings
-        #---------------------------------------------------------------
-        
-        #---------------------------------------------------------------
-        # loadings: translate the X & Y scores *back* to the original X & Y matrices
-        # cross-loadings: the relationship between X & Y to opposite canonical covariates
-
-        # - X_scores @ X_loadings = X
-        # - ! more interpretable than weights b/c they are not on the deflated matrices
-        # - should be: corr(X, X_c)
-        #---------------------------------------------------------------
-
-        # try:
-        #     assert np.allclose(X_cc @ self.model_.x_loadings_.T, X, atol=0.01), 'x_scores @ x_loadings.T != X'
-        #     assert np.allclose(Y_cc @ self.model_.y_loadings_.T, Y, atol=0.01), 'y_scores @ x_loadings.T != Y'
-        # except AssertionError as e:
-        #     self.errors.append(repr(e))
-        
-        # may not always make sense.....
-        # ## get all loadings, including cross-loadings
-        # # - !! poss. problem is the cca.x_loadings_ is a bit diff!!
-        # self.loadings = pd.DataFrame(columns=['X_CC01', 'X_CC02', 'Y_CC01', 'Y_CC02']) # make this dynamically
-        # for fname, features in {'X':X, 'Y':Y}.items():
-        #     for f in range(features.shape[1]): # assumes same number of features in both and components for each
-        #         for c in range(n_comps):
-        #             self.loadings.loc[f'{fname}{f+1}', f'Y_CC0{c+1}'] = np.corrcoef(features.iloc[:,f], Y_cc[:,c])[0,1]
-        #             self.loadings.loc[f'{fname}{f+1}', f'X_CC0{c+1}'] = np.corrcoef(features.iloc[:,f], X_cc[:,c])[0,1]
-
-        self.X_loadings = pd.DataFrame(self.model_.x_loadings_, index=X.columns, columns=[f'X_loading0{i}' for i in range(1, n_comps+1)])
-        self.Y_loadings = pd.DataFrame(self.model_.y_loadings_, index=Y.columns, columns=[f'Y_loading0{i}' for i in range(1, n_comps+1)])
-
-        return self.model_
-
-    def predict(self, X, Y=None, plot=True, colors=None):
-
-        X, Y = self.check_input(X, Y)
-        if self.fitted is False:
-            print('Fit first...')
-            return None
-
-        Y_pred = self.model_.predict(X)
-        if plot is True and Y is not None:
-            self.plot_predictions(Y, Y_pred, X, colors=colors)
-
-        return Y_pred
-
-    def fit_predict(self, X, Y, n_comps=None, plot=True):
-            
-        if n_comps is None: n_comps = self.n_comps
-        self.fit(X, Y, n_comps)
-        Y_pred = self.predict(X, Y, plot)
-        return Y_pred
-
-    def optimize_fit(self, X, Y, max_comps=None, folds=5, metric='MSE', \
-                    plot=True, colors=None):
-
-        if max_comps is None: comp_range = np.arange(1, self.n_comps+1) # 1,2
-        else:                 comp_range = np.arange(1, max_comps+1)
-
-        #------------------------------------------------------------
-        # find minimal mse for number of components using cross-validation
-        # - options of MSE & MAE (L1 loss)
-        #------------------------------------------------------------
-
-        comps_mse, comps_mae = [], []
-        for i in comp_range:
-            Y_pred = cross_val_predict(PLSRegression(n_components=i), X, Y, cv=folds) 
-            comps_mse.append(mean_squared_error(Y, Y_pred))
-            comps_mae.append(mean_absolute_error(Y, Y_pred))
-            # calcuate mean absolute error too
-
-        # see if there is a difference between mse and mae
-        msemin, maemin = np.argmin(comps_mse), np.argmin(comps_mae)
-        # if maemin != msemin: 
-        #     print('MSE and MAE disagree on optimal number of components')
-        
-        if metric is 'MSE': 
-            self.n_comps = msemin + 1
-            metric_min = msemin
-            metric_vals = comps_mse
-        elif metric is 'MAE':
-            self.n_comps = maemin + 1
-            metric_min = maemin
-            metric_vals = comps_mae
-
-        #------------------------------------------------------------
-        # Refit w/ optimal number of components
-        #------------------------------------------------------------
-        
-        # refit 'calibration' w/ entire dataset
-        fitted = self.fit(X, Y, n_comps=self.n_comps)
-        Y_preds = self.predict(X, Y, plot=plot, colors=colors)
-        r2  = r2_score(Y, Y_preds)
-        mse = mean_squared_error(Y, Y_preds)
-        mae = mean_absolute_error(Y, Y_preds)
-
-        # Cross-validation
-        fitted_cv = self.model(n_components=self.n_comps).fit(X, Y)
-        Y_preds_cv = cross_val_predict(fitted_cv, X, Y, cv=folds)    
-        r2_cv = r2_score(Y, Y_preds_cv)
-        mse_cv = mean_squared_error(Y, Y_preds_cv)
-        mae_cv = mean_absolute_error(Y, Y_preds_cv)
-
-        #------------------------------------------------------------
-        # print/plot out metrics
-        #------------------------------------------------------------
-
-        if plot is True:
-
-            print(f"{metric} suggested number of components = {self.n_comps}")
-
-            # plot the mse as a function of component number
-            fig = plt.figure(figsize=(3,3))
-            plt.plot(comp_range, np.array(metric_vals), '-v', color='blue', mfc='blue')
-            plt.plot(comp_range[metric_min], np.array(metric_vals)[metric_min], 'P', ms=10, mfc='red')
-            plt.xlabel('Number of components')
-            plt.ylabel(f'{folds}-fold CV {metric}')
-            plt.xlim(left=1)
-            plt.xticks(comp_range)
-            plt.show()
-
-            print(f"{'Model':<15} {'R2':<10} {'MSE':<10} {'MAE':<10}")
-            print(f"{'Calibration':<15} {np.round(r2, 3):<10} {np.round(mse,3):<10} {np.round(mae,3):<10}")
-            print(f"{f'{folds}-fold CV':<15} {np.round(r2_cv, 3):<10} {np.round(mse_cv,3):<10} {np.round(mae_cv,3):<10}")
-
-    def transform(self, X=None, Y=None):
-        return self.model_.transform(X, Y)
-
-    def fit_transform(self, X=None, Y=None, n_comps=None):
-        self.fit(X, Y, n_comps)
-        return self.model_.transform(X, Y)
-
-    def inverse_transform(self, X_tr=None, Y_tr=None):
-        # only exact if n_comps = n_features
-        return self.model_.inverse_transform(X_tr, Y_tr)
-
-    def score(self, X, Y):
-        return self.model_.score(X, Y)
-
-    def plot_predictions(self, Y, Y_pred, X, colors=None):
-        
-        n_targets = Y.shape[1]
-        X_transformed = self.model_.transform(X)
-        n_comps = X_transformed.shape[1]
-
-        if not isinstance(Y, pd.DataFrame): Y = pd.DataFrame(Y)
-
-        fig, axs  = plt.subplots(n_targets, n_comps+1, figsize=(3*(n_comps+1), 3*n_targets))
-        
-        for y in range(n_targets):
-
-            if (n_targets > 1):    ax = axs[y, 0]
-            elif (n_targets == 1): ax = axs[0]
-
-            #------------------------------------------------------------
-            # plot the predicted Y against real Y 
-            #------------------------------------------------------------
-
-            ax.scatter(x=Y_pred[:, y], y=Y.iloc[:, y], alpha=0.75, edgecolor='black', linewidth=0.5, c=colors)
-            ax.set_title(f"Y {y + 1}")
-            ax.set(xlabel=f"Predicted Y {y + 1}", ylabel=f"True Y {y + 1}")
-            
-            # annotate plot with correlation
-            r = np.corrcoef(Y.iloc[:, y], Y_pred[:, y])[0, 1]
-            ax.annotate(f"r  = {np.round(r, 3)}", xy=(0.05, 0.9), fontsize=9, xycoords='axes fraction')           
-            
-            # make sure the axes are same
-            ylim = ax.get_ylim()
-            ax.set_xlim(ylim)
-            ax.plot(ylim, ylim, ls="--", color='black')
-            
-            for c in range(n_comps):
-
-                if (n_targets > 1):    ax = axs[y, c+1]
-                elif (n_targets == 1): ax = axs[c+1]
-            
-                # plot the projected X values/scores against the Y values
-                ax.scatter(x=X_transformed[:, c], y=Y.iloc[:, y], alpha=0.50, label="observed", 
-                           edgecolor='black', linewidth=0.25, c=colors, marker='o')
-                ax.scatter(x=X_transformed[:, c], y=Y_pred[:, y], alpha=0.75, label="predicted", 
-                           edgecolor='black', linewidth=2, c=colors, marker='o')
-                           
-                r = np.corrcoef(X_transformed[:, c], Y.iloc[:, y])[0, 1]
-                ax.annotate(f"r  = {np.round(r, 3)}", xy=(0.05, 0.9), fontsize=9, xycoords='axes fraction') 
-                ax.set(xlabel=f"Projected X {c + 1}", ylabel=f"True y {y + 1}", title=f"Component {c+1}")
-
-                # same y axis
-                ax.set_ylabel("")
-                # ax.set_ylim(ylim)
-
-            if c == n_comps - 1: ax.legend().set_visible(True)
-        
-        plt.tight_layout()
-        plt.show()
-
-    def plot_X_loadings(self, X_loadings=None, items=True):
-  
-        colors = ['red', 'blue', 'purple', 'green', 'lavender', 'grey', 'fuchsia', 'orange', 'dodgerblue', 
-                    'yellow', 'orchid', 'indigo', 'aqua','palegreen', 'silver', 'plum', 'fuchsia', 'coral',
-                    'gold', 'pink','slategray', 'forestgreen','peachpuff','honeydew','brown','olivedrab',
-                    'darkturquoise', 'tan', 'springgreen', 'mintcream','navajowhite','chocolate','lightblue','chartreuse',
-                    'lime','yellowgreen','khaki','gold','teal','tomato']
-
-        if X_loadings is None: X_loadings = self.X_loadings
-        xvars = X_loadings.index
-
-        # organize the coloring scheme
-        plot_colors = []
-        if items:
-            plot_labels = [xvar.split('_')[0] for xvar in xvars]
-            plot_labels = list(np.unique(plot_labels))
-            plot_colors = [colors[plot_labels.index(xvar.split('_')[0])] for xvar in xvars]
-        else:
-            plot_labels = xvars
-            plot_colors = colors[:len(plot_labels)]
-            
-        # plot loadings
-        fig, axs = plt.subplots(self.n_comps, 1, figsize=(11, 2.5*self.n_comps))
-        for i in range(self.n_comps):
-            if self.n_comps > 1: ax = axs[i]
-            else:                ax = axs
-            ax.bar(np.arange(len(X_loadings)), X_loadings.iloc[:,i], 
-                   color=plot_colors, edgecolor='black', linewidth=0.5)
-            ax.set_title(f'Component {i+1} X loadings', fontsize=14)
-            ax.set_xticks([])
-            # ax.set_xticks(np.arange(len(X_loadings)))
-            # ax.set_xticklabels([X_loadings.index], rotation=90, fontsize=10)
-
-        patches = [mpatches.Patch(color=colors[i], label=plot_labels[i]) for i in range(len(plot_labels))]
-        plt.legend(handles=patches, bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
-        plt.tight_layout()
-        plt.show()
-   
-    def get_top_features(self, X_loadings=None, n_features=50):
-        # maybe eventually I want to do in cross-validation loop?
-        if X_loadings is None: X_loadings = self.X_loadings
-        X_loadings = np.abs(X_loadings)
-        top_features = []
-        for i in range(self.n_comps):
-            features = X_loadings.iloc[:,i].sort_values(ascending=False).index[:n_features]
-            top_features.append(list(features))
-        return top_features
-
 # TODO add uniqueness scores etc like efa
 # TODO add biplots, rotations etc...
+#--------------------------------------------------------------------------------------------
 
 
 #--------------------------------------------------------------------------------------------
 # nonlinear decomposition
 #--------------------------------------------------------------------------------------------
-
 
 # MDS specific
 def calc_rawstress(dsm, embedding):
@@ -1045,11 +642,10 @@ def calc_rawstress(dsm, embedding):
         dsm = orig. dissimilarity matrix
         embedding = embedding from MDS
     '''
-    dsm_emb = pairwise_distances(embedding, metric='euclidean') # distances betweeen mds embedding points
-    raw_stress = 0.5 * np.sum((dsm_emb - dsm) ** 2)
-    return raw_stress
+    emb_dsm = pairwise_distances(embedding, metric='euclidean') # distances betweeen mds embedding points
+    return 0.5 * np.sum((emb_dsm - dsm) ** 2)
 
-def convert_rawstress_to_kruskal(dm, raw_stress):
+def convert_rawstress_to_kruskal(dsm, raw_stress):
     ''' 
         a scaled version of the raw stress
         dm = orig. dissimilarity matrix
@@ -1057,5 +653,5 @@ def convert_rawstress_to_kruskal(dm, raw_stress):
         - kruskal stress is value in range [0,1], where smaller is better
         - divide demoninator by two to make it only half of the symmetric matrix
     '''
-    kruskal_stress = np.sqrt(raw_stress / (0.5 * np.sum(dm ** 2)))
-    return kruskal_stress
+    return np.sqrt(raw_stress / (0.5 * np.sum(dsm ** 2)))
+

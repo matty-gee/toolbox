@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 import numpy as np
+
 from sklearn.base import clone, BaseEstimator, ClassifierMixin
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
@@ -8,6 +9,16 @@ from sklearn.feature_selection import VarianceThreshold
 from sklearn.model_selection import GridSearchCV, LeaveOneOut, StratifiedKFold, StratifiedShuffleSplit
 from sklearn.metrics import balanced_accuracy_score, f1_score, roc_curve, auc, roc_auc_score, matthews_corrcoef, silhouette_score
 
+from sklearn.svm import SVC
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB, MultinomialNB
+from sklearn.neural_network import MLPClassifier
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
+from sklearn.gaussian_process import GaussianProcessClassifier
+from sklearn.gaussian_process.kernels import RBF
+from sklearn.tree import DecisionTreeClassifier
 
 #---------------------------------------------------------------
 # classification classes
@@ -27,7 +38,6 @@ class CustomClassifier(BaseEstimator, ClassifierMixin):
     def predict(self, X, y=None):
         # return class w/ largest probability
         pass
-
 
 class KDEClassifier(BaseEstimator, ClassifierMixin):
 
@@ -78,7 +88,6 @@ class KDEClassifier(BaseEstimator, ClassifierMixin):
         
         return self.classes_[np.argmax(self.predict_proba(X), 1)]
     
-
 class TreeEmbeddingLogisticRegression(BaseEstimator, ClassifierMixin):
 
     """
@@ -124,7 +133,6 @@ class TreeEmbeddingLogisticRegression(BaseEstimator, ClassifierMixin):
             preds = self.lr.predict_proba(X_emb)
             
         return preds  
-
 
 class ClassifierGridSearch(object):
 
@@ -189,6 +197,7 @@ class ClassifierGridSearch(object):
 # helper functions 
 #---------------------------------------------------------------
 
+
 def run_perm_clf(clf, X, y, k=10, cv=StratifiedKFold, permutations=1000):
     '''
         Run permuted classification with cross-validation
@@ -228,16 +237,14 @@ def run_perm_clf(clf, X, y, k=10, cv=StratifiedKFold, permutations=1000):
         perm_accs[n] = np.mean(acc) # mean acc across folds
     return perm_accs
 
-
 def run_clf(clf, X, y, cv=6, standardize=False):
 
-    # TODO: accept pipelines...
     
     eval_df  = pd.DataFrame()
     pred_dfs = []
 
     if isinstance(cv, int): # stratified to balance each fold by class (i.e., character) 
-        folds = StratifiedKFold(n_splits=cv, random_state=76, shuffle=True).split(X, y)
+        folds = StratifiedKFold(n_splits=cv, random_state=2023, shuffle=True).split(X, y)
     elif (isinstance(cv, str)) & (cv=='loo'): # leave one out
         folds = LeaveOneOut().split(X, y)
     else: # iterator
@@ -269,10 +276,10 @@ def run_clf(clf, X, y, cv=6, standardize=False):
         pred_df.insert(0, 'split', k)
 
         # evaluate performance
-        eval_df.loc[k, 'split']    = k
+        eval_df.loc[k, 'split'] = k
         eval_df.loc[k, 'accuracy'] = decoder.score(X_test, y[test])
-        # eval_df.loc[k, 'balanced_acc'] = balanced_accuracy_score(y[test], y_preds)
-        # eval_df.loc[k, 'f1'] = f1_score(y[test], y_preds, average='weighted')
+        eval_df.loc[k, 'balanced_acc'] = balanced_accuracy_score(y[test], y_preds)
+        eval_df.loc[k, 'f1'] = f1_score(y[test], y_preds, average='weighted')
         # eval_df.loc[k, 'phi'] = matthews_corrcoef(y[test], y_preds)
         # eval_df.loc[k, 'dice'] = sp.spatial.distance.dice(y[test], y_preds)
 
@@ -289,6 +296,8 @@ def run_clf(clf, X, y, cv=6, standardize=False):
     # output dict
     clf_dict = {'cross-validation': cv, 
                 'predictions': pred_df,
-                'evaluation': eval_df} 
+                'evaluation': eval_df,
+                'classifier': decoder} 
     
     return clf_dict
+

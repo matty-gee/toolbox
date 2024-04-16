@@ -1,13 +1,229 @@
-import random
+import random, patsy
 import scipy
 import pandas as pd
 import numpy as np
-import patsy
+
 import statsmodels.api as sm
+import statsmodels.formula.api as smf
 from sklearn.linear_model import LinearRegression, HuberRegressor
-import matplotlib.pyplot as plt
-import seaborn as sns
+from scipy.stats import chi2
 from sklearn.metrics import r2_score
+
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+flatten_lists = lambda l: [item for sublist in l for item in sublist]
+  
+def nanzscore(arr):
+   arr_z = np.array([np.nan] * len(arr)) # create an array of nans the same size as arr
+   arr_z[np.isfinite(arr)] = scipy.stats.zscore(arr[np.isfinite(arr)]) # calculate the zscore of the masked array
+   return arr_z
+
+
+#-------------------------------------------------------------------------------------------
+# Standard regressions
+#-------------------------------------------------------------------------------------------
+
+def run_ols(X, y=None, covariates=None, data=None,
+            loglik_ratio=False, 
+            popmean=0, 
+            verbose=False):
+    '''
+        Run ordinary least squares regression or 1-sample t-test
+        Wrapper for statsmodels OLS
+        Cleans up strings to be compatible with patsy & statsmodel formulas
+
+        Inputs:
+            X: Dataframe, series, list strings, string, or array
+            y (optional): Dataframe, series, list strings, string, or array
+            data (optional): Dataframe, for use if X & y are strings
+            covariates (optional): list of strings, for use if X & y are strings
+
+            popmean (optional): float or int, for use if t-test
+
+            plot (optional): bool, plot the predicted vs observed values
+        
+        Outputs:
+            out_df: Dataframe, summary of regression results
+            ols_obj: statsmodels OLS object
+    '''
+
+    # helpers
+    def clean_string(string):
+        if '.' in string:
+            string = string.replace('.', '_')
+        return string
+
+    def make_dataframe(a):
+        if isinstance(a, pd.DataFrame): 
+            return a.reset_index(drop=True)
+        if isinstance(a, pd.Series): 
+            return a.to_frame().reset_index(drop=True)
+        else:
+            if isinstance(a, list): a = np.array(a)
+            if a.ndim == 1: a = a[:, np.newaxis]
+            return pd.DataFrame(a)
+
+    def nanzscore(arr):
+        arr_z = np.array([np.nan] * len(arr)) # create an array of nans the same size as arr
+        arr_z[np.isfinite(arr)] = scipy.stats.zscore(arr[np.isfinite(arr)]) # calculate the zscore of the masked array
+        return arr_z
+
+    # handle strings
+    if isinstance(X, str) or (isinstance(X, list) and isinstance(X[0], str)):
+
+        # is it a formula?
+        if '~' in X:
+           
+            df = data.copy()
+            y, X = patsy.dmatrices(X, df, return_type="dataframe")
+
+        # if not, construct the formula
+        else:
+
+            if (isinstance(X, str)): X = [X]
+            cols = list(np.unique(flatten_lists([x.split('*') if '*' in x else [x] for x in X] + [[y]])))
+            if covariates is not None: 
+                if (isinstance(covariates, str)): covariates = [covariates]
+                cols.extend(covariates)
+            df = data[cols].copy() # restrict to the columns provided (exclude interaction labels)
+
+            # remove '.' & rename columns
+            X_labels = X.copy()
+            if any(['.' in col for col in df.columns]):
+                for i, x_label_ in enumerate(X):
+                    X_labels[i] = clean_string(x_label_)
+                    df.rename(columns={x_label_:X_labels[i]}, inplace=True)
+                df.rename(columns={y:clean_string(y)}, inplace=True)
+
+            # create dataframes from patsy formula
+            X_labels = X_labels + covariates if covariates is not None else X_labels
+            y, X = patsy.dmatrices(f'{clean_string(y)} ~ ' + ' + '.join(X_labels), df, return_type="dataframe")
+
+    # handle series, dataframes, arrays or lists
+    else: 
+
+        # build the regression from arrays
+        if y is not None: 
+            y = make_dataframe(y)
+            if isinstance(y.columns[0], int): y.columns = ['y']
+            X = make_dataframe(X)
+            if all([isinstance(c, int) for c in X.columns]): X.columns = [f'x{i+1}' for i in range(X.shape[1])]
+            X = sm.add_constant(X)
+            X.rename(columns={'const':'Intercept'}, inplace=True)
+
+        # if y is None, then its a 1-sample t-test: X ~ intercept
+        else:
+            y = make_dataframe(X)
+            xcol = y.columns[0] if not isinstance(y.columns[0], int) else 'x1'
+            X = pd.DataFrame(np.ones(len(X)), columns=[xcol])
+            y.rename(columns={y.columns[0]:f' against {popmean}'}, inplace=True) # rename so easier to interpret in output
+            y = y - popmean
+
+    # z-score continuous variables (ols only)
+    y[y.columns[0]] = nanzscore(y[y.columns[0]])
+    if verbose: print(f'Z-scored y: {y.columns[0]}')
+    for col in X.columns:
+        if (X.dtypes[col] in ['float64', 'int64']) & (col not in ['Intercept', 'const']) & (X[col].nunique() > 2):
+            X[col] = nanzscore(X[col])
+            if verbose: print(f'Z-scored x: {col}')
+        
+    # run the regression 
+    try: 
+        ols    = sm.OLS(y, X, missing='drop').fit()
+        out_df = pd.DataFrame(ols.summary2().tables[1])
+
+        if loglik_ratio:
+            ll_0 = sm.OLS(y, sm.add_constant(np.ones(len(y))), missing='drop').fit() # null model (intercept-only)
+            ll_r, ll_r_p = ols.compare_lr_test(ll_0)[:2] # compare against null
+    
+    except Exception as e:
+        print(f'Error: {e}')
+        return X, y
+
+    # clean up the output
+    out_df.columns = ['beta', 'se', 't', 'p', '95%_lb', '95%_ub']
+    out_df.reset_index(inplace=True)
+    out_df.rename(columns={'index': 'x'}, inplace=True)
+    out_df['X'] = (' + ').join(X.columns.tolist())
+    out_df['y'] = y.columns[0]
+    out_df['dof'] = ols.df_resid
+    # out_df['z'] = scipy.stats.norm.ppf(1 - out_df['p'] / 2) # z-score for 2-tailed test
+
+    if loglik_ratio: 
+        out_df['ll'] = ols.llf
+        out_df['llr'] = ll_r
+        out_df['llr_p'] = ll_r_p
+    out_df['adj_rsq'] = np.round(ols.rsquared_adj, 3)
+    out_df['bic'] = np.round(ols.bic, 2)
+    out_df['aic'] = np.round(ols.aic, 2)
+    out_df['p_right'] = [p/2 if b > 0 else 1-p/2 for b, p in zip(out_df['beta'].values, out_df['p'].values)]
+    out_df['p_left']  = [p/2 if b < 0 else 1-p/2 for b, p in zip(out_df['beta'].values, out_df['p'].values)]
+
+    if loglik_ratio:
+        out_df = out_df[['X', 'y', 'x', 'dof', 'll', 'llr', 'llr_p', 'adj_rsq', 'bic', 'aic', 'beta', 'se', 
+                         '95%_lb', '95%_ub', 't', 'p', 'p_left', 'p_right']]
+    else:
+        out_df = out_df[['X', 'y', 'x', 'dof', 'adj_rsq', 'bic', 'aic', 'beta', 'se', 
+                         '95%_lb', '95%_ub', 't', 'p', 'p_left', 'p_right']]
+    if 'against' in y.columns[0]: out_df['X'] = 't-test'
+
+    return out_df, ols
+
+# TESTS: 
+# x = data['affil_mean_mean']
+# popmean = 0
+# t, p = scipy.stats.ttest_1samp(x.values, popmean=popmean, alternative='less')
+# print(f't={t}, p={p}')
+
+# # t-test checks
+# display(run_ols(x.values, popmean=popmean)[0]) # array
+# display(run_ols(list(x), popmean=popmean)[0]) # list
+# display(run_ols(x, popmean=popmean)[0]) # series
+
+# # ols checks
+# display(run_ols(data['affil_mean_mean'].values, data['memory_mean_main'].values)[0]) # 2 arrays
+# display(run_ols(data['affil_mean_mean'], data['memory_mean_main'])[0]) # 2 series
+# display(run_ols('affil_mean_mean', 'memory_mean_main', data)[0]) # 2 strings and a dataframe
+
+#-------------------------------------------------------------------------------------------
+# Inference
+#-------------------------------------------------------------------------------------------
+  
+
+def parametric_ci(coeffs, conf=99):
+    '''
+        Computes parametric confidence interval: 
+        Inputs:
+            coeffs: 1-d array coefficients to compute confidence interval over
+            conf: confidence level, in integers
+
+        same as: scipy.stats.t.interval
+    '''
+    from scipy.stats import sem, t
+    n  = len(coeffs)
+    df = n - 1
+    m  = np.mean(coeffs)
+    se = sem(coeffs)
+    h  = se * t.ppf((1 + (conf/100)) / 2, df)
+    # TO DO - use normal dist, rather than t dist, if n >= 30
+    return [m - h, m + h]
+
+def likelihood_ratio(ll_0, ll_1):
+    # log likelihood for m_0 (H_0) must be <= log likelihood of m_1 (H_1)
+    # checked against statsmodels
+    return(-2 * (ll_0 - ll_1))
+
+def likelihood_ratio_test(ll_0, ll_1, df=1):
+    # df is the difference in number of parameters between the two models; usually 1
+    # checked against statsmodels
+    lr = likelihood_ratio(ll_0, ll_1)
+    p  = 1 - chi2(df).cdf(lr) # since lr follows χ2
+    return(lr, p)
+
+def compute_rse(y, predicted):
+    rss = np.sum((y - predicted) ** 2)
+    return (rss / (len(y) - 2)) ** 0.5
 
 def compute_r2_adjusted(r2, n, p):
     '''
@@ -17,170 +233,11 @@ def compute_r2_adjusted(r2, n, p):
     '''
     return 1 - (1 - r2) * (n - 1) / (n - p - 1)
 
+
 #-------------------------------------------------------------------------------------------
-# Standard regressions
+# Non-standard/non-linear regressions
 #-------------------------------------------------------------------------------------------
 
-def run_ols(X_labels_, y_label_, df_, covariates=None, n_splits=None, plot=False):
-    '''
-        Run ordinary least squares regression
-        Renames variables as needed to work with statsmodels api
-
-        Arguments
-        ---------
-        X_labels_ : list of str
-            Independent variables, reflecting column names in df_
-            Can specify interactions: e.g., 'variable_1 * variable_2'
-        y_label_ : str
-            Dependent varibale, reflecting a column name in df_
-        df_ : pd.DataFrame
-            Includes all data to run regression
-        covariates : list of str (optional)
-            Variables to include but not output results for 
-            Default: None
-        n_splits : int (optional)
-            If want cross-validation 
-            Default: None
-        plot : bool (optional)
-            _description_ 
-            Default: False
-
-        Returns
-        -------
-        pd.DataFrame 
-            Results
-
-        [By Matthew Schafer, github: @matty-gee; 2020ish]
-    '''
-    
-    # organize X & y 
-    df = df_.copy()
-    # df = df.fillna(df.mean()) # maybe add a warning?
-    
-    # rename x labels
-    X_labels = X_labels_.copy()
-    for i, x_label_ in enumerate(X_labels_):
-        if '.' in x_label_:
-            x_label = x_label_.replace('.', '_')
-            X_labels[i] = x_label
-            df.rename(columns={x_label_:x_label}, inplace=True)
-    
-    # rename y label
-    y_label = y_label_
-    if '.' in y_label: y_label = y_label.replace('.', '_')
-    df.rename(columns={y_label_:y_label}, inplace=True)
-    
-    if covariates is not None: X_ = X_labels + covariates
-    else: X_ = X_labels
-    
-    f = y_label + ' ~ ' + ' + '.join(X_)
-    y, X = patsy.dmatrices(f, df, return_type="dataframe")
-    
-    # run model(s)
-    if n_splits is not None:
-
-        train_pvalues = []
-        train_rsquared_adj = []
-        train_bic = [] 
-        
-        test_rmse = []
-        test_rsquared_adj = []
-        test_bic = []
-
-        for f, (train_ix, test_ix) in enumerate(KFold(n_splits=n_splits, random_state=0, shuffle=True).split(X)):
-            
-            X_train = X.iloc[train_ix, :]            
-            X_test  = X.iloc[test_ix, :]
-            y_train = scipy.stats.zscore(y.iloc[train_ix, :])
-            y_test  = scipy.stats.zscore(y.iloc[test_ix, :])          
-
-            # fit the model on training data
-            ols_obj = sm.OLS(y_train, X_train, missing='drop').fit()
-            train_pred = ols_obj.predict(X_train) 
-            y_train = y_train.values.reshape(-1)
-            if len(X_labels) > 1: train_pvalues.append(list(ols_obj.pvalues[1:1+len(X_labels)].values))
-            else: train_pvalues.append(ols_obj.pvalues[1])
-            train_rsquared_adj.append(ols_obj.rsquared_adj)
-            train_bic.append(ols_obj.bic)
-            
-            # intercept = ols_obj.params[0], coefs = ols_obj.params[1:].values
-            # pred_y = intercept + np.dot(coefs, test.iloc[:,:-1].T) # intercept + (num_features .* (num_features, observations))
-
-            # evaluate testing data performance 
-            test_pred = ols_obj.predict(X_test) 
-            y_test = y_test.values.reshape(-1)
-            k = len(X_labels_) # predictors
-            n = len(df_) # observations
-            test_resid = y_test - test_pred
-            
-            # rmse
-            test_rmse.append(np.mean((test_resid) ** 2))
-            
-            # bic
-            test_bic.append(compute_bic(n, k, test_resid))
-            
-            # r-squared
-            r2 = r2_score(y_test, test_pred)
-            adj_r2 = 1 - ((1-r2)*(n-1)/(n-k-1))
-            test_rsquared_adj.append(adj_r2)
-
-            if plot:
-                # this was hsowing prediction accuracy, rather than just the correlaiton between...
-                # sns.scatterplot(x=train_pred, y=y_train, alpha=0.6, color='darkblue', ax=axs[0])
-                # axs[0].set_xlim(np.min(y_train),np.max(y_train))
-                # axs[0].set_ylim(np.min(y_train),np.max(y_train))
-                # axs[0].plot([np.min(train_pred), np.max(train_pred)], [np.min(y_train), np.max(y_train)], color='grey', ls="--")
-                
-                fig, axs = plt.subplots(1, 2, figsize=(8.5, 4))
-                sns.regplot(x=train_pred, y=y_train, scatter_kws={'alpha':0.6}, color='darkblue', ax=axs[0])
-                axs[0].set_xlabel('Predicted (training), fold=' + str(f+1), fontsize=15)
-                axs[0].set_ylabel('Observed (training), fold=' + str(f+1), fontsize=15)
-                sns.regplot(x=test_pred, y=y_test, scatter_kws={'alpha':0.6}, color='darkblue', ax=axs[1])
-
-                axs[1].set_xlabel('Predicted (testing), fold=' + str(f+1), fontsize=15)
-                axs[1].set_ylabel('Observed (testing), fold=' + str(f+1), fontsize=15)
-                plt.tight_layout()
-            
-        index = ['fold_' + str(f+1) for f in np.arange(0,n_splits)]
-        train_pvalues = pd.DataFrame(train_pvalues, index=index, columns=[l + '_train-pvalue' for l in X_labels])
-        train_rsquared_adj = pd.DataFrame(train_rsquared_adj, index=index, columns=['train-r_squared_adj'])
-        train_bic = pd.DataFrame(train_bic, index=index, columns=['train-BIC'])
-        
-        test_rsquared_adj = pd.DataFrame(test_rsquared_adj, index=index, columns=['test-r_squared_adj'])
-        test_bic = pd.DataFrame(test_bic, index=index, columns=['test-BIC'])
-        test_rmse = pd.DataFrame(test_rmse, index=index, columns=['test-RMSE'])
-        
-        cv_df = pd.concat([train_pvalues, train_bic, train_rsquared_adj, test_bic, test_rsquared_adj, test_rmse], axis=1)
-        mean_df = pd.DataFrame(np.mean(cv_df, 0)).T
-        mean_df.index = ['mean']
-        output_df = pd.concat([cv_df, mean_df], 0)
-        
-        return output_df
-
-    else:
-
-        ols_obj = sm.OLS(y, X, missing='drop').fit()
-        cols    = list(ols_obj.pvalues[1:].index)
-        pvalues = [p for p in ols_obj.pvalues[1:]]
-        betas   = [p for p in ols_obj.params[1:]]            
-        res     = np.array(pvalues + betas + [ols_obj.bic, ols_obj.rsquared_adj]).reshape(1,-1)
-        output_df = pd.DataFrame(res, columns=[l + '_pvalue' for l in cols] + [l + '_beta' for l in cols] + ['BIC', 'r_squared-adj'])
-        
-        if plot:
-            pred_y = ols_obj.predict(X)
-            obs_y = y.values.reshape(-1)
-            fig, ax = plt.subplots(figsize=(4, 4))
-            sns.scatterplot(x=pred_y, y=obs_y, alpha=0.6, color='darkblue')
-            ax.plot([np.min(pred_y), np.max(pred_y)], [np.min(obs_y), np.max(obs_y)], color='grey', ls="--")
-            ax.set_xlabel('Predicted', fontsize=15)
-            ax.set_ylabel('Observed', fontsize=15)
-            plt.show()
-                
-        return  output_df, ols_obj
-        
-#-------------------------------------------------------------------------------------------
-# Non-standard/non-linear
-#-------------------------------------------------------------------------------------------
 
 class ExponentialRegression:
     '''
@@ -221,7 +278,6 @@ class ExponentialRegression:
 
         return self.yhat
     
-
 class PolynomialRegression:
     '''
     TODO: add __init__, description
@@ -265,15 +321,11 @@ class PolynomialRegression:
         self.r2_adj = compute_r2_adjusted(self.r2, self.X.shape[0], self.X.shape[1])
         
         return self.yhat
-       
-#-------------------------------------------------------------------------------------------
-# Performance metrics & plots
-#-------------------------------------------------------------------------------------------
 
-def root_squared_error(y, predicted):
-    rss = np.sum((y - predicted) ** 2)
-    rse = (rss / (len(y) - 2)) ** 0.5
-    return rse
+
+#-------------------------------------------------------------------------------------------
+# Plotting
+#-------------------------------------------------------------------------------------------
 
 
 def regression_jointplots(xs, y, data, hue=None, dots_color='blue', run_ols=False,
@@ -448,55 +500,47 @@ def regression_jointplots(xs, y, data, hue=None, dots_color='blue', run_ols=Fals
     
     return fig
 
-#-------------------------------------------------------------------------------------------
-# Orthogonalization - CAUTION: all trying to use gram schmidt but may give diff results? needs more testing
-#-------------------------------------------------------------------------------------------
 
-# def gram_schmidt(X):
-#     ''' 
-#         orthogonalize columns in matrix, using Gram-Schmidt Orthogonalization.
-#         order matters
-#         return in same shape as original
-#     '''
-#     Q, R = np.linalg.qr(X)
-#     return Q.T
- 
+#  def run_ols_cv():
+#      # run model(s)
+#     if n_splits is not None:
 
-# def orthogonalize(U, eps=1e-15):
-#     """
-#     Orthogonalizes the matrix U (d x n) using Gram-Schmidt Orthogonalization.
-#     If the columns of U are linearly dependent with rank(U) = r, the last n-r columns 
-#     will be 0.
+#         train_pvalues, train_rsquared_adj, train_bic = [], [], [] 
+#         test_rmse, test_rsquared_adj, test_bic = [], [], []
+
+#         for f, (train_ix, test_ix) in enumerate(KFold(n_splits=n_splits, random_state=0, shuffle=True).split(X)):
+            
+#             X_train, X_test = X.iloc[train_ix, :], X.iloc[test_ix, :]
+#             y_train, y_test = zscore(y.iloc[train_ix, :]), zscore(y.iloc[test_ix, :])
+
+#             # fit the model on training data
+#             ols_obj = sm.OLS(y_train, X_train, missing='drop').fit()
+#             train_pred = ols_obj.predict(X_train)
+#             y_train = y_train.values.reshape(-1)
+#             if len(X_labels) > 1: train_pvalues.append(list(ols_obj.pvalues[1:1+len(X_labels)].values))
+#             else: train_pvalues.append(ols_obj.pvalues[1])
+#             train_rsquared_adj.append(ols_obj.rsquared_adj)
+#             train_bic.append(ols_obj.bic)
+
+#             # intercept = ols_obj.params[0], coefs = ols_obj.params[1:].values
+#             # pred_y = intercept + np.dot(coefs, test.iloc[:,:-1].T) # intercept + (num_features .* (num_features, observations))
+
+#             # evaluate testing data performance 
+#             test_pred = ols_obj.predict(X_test)
+#             y_test = y_test.values.reshape(-1)
+#             k = len(X_labels_) # predictors
+#             n = len(df_) # observations
+#             test_resid = y_test - test_pred
+
+#             # rmse
+#             test_rmse.append(np.mean((test_resid) ** 2))
+
+#             # bic
+#             test_bic.append(compute_bic(n, k, test_resid))
+
+#             # r-squared
+#             r2 = r2_score(y_test, test_pred)
+#             adj_r2 = 1 - ((1-r2)*(n-1)/(n-k-1))
+#             test_rsquared_adj.append(adj_r2)
+
     
-#     Args:
-#         U (numpy.array): A d x n matrix with columns that need to be orthogonalized.
-#         eps (float): Threshold value below which numbers are regarded as 0 (default=1e-15).
-    
-#     Returns:
-#         (numpy.array): A d x n orthogonal matrix. If the input matrix U's cols were
-#             not linearly independent, then the last n-r cols are zeros.
-    
-#     Examples:
-#     ```python
-#     >>> import numpy as np
-#     >>> import gram_schmidt as gs
-#     >>> gs.orthogonalize(np.array([[10., 3.], [7., 8.]]))
-#     array([[ 0.81923192, -0.57346234],
-#        [ 0.57346234,  0.81923192]])
-#     >>> gs.orthogonalize(np.array([[10., 3., 4., 8.], [7., 8., 6., 1.]]))
-#     array([[ 0.81923192 -0.57346234  0.          0.        ]
-#        [ 0.57346234  0.81923192  0.          0.        ]])
-#     ```
-#     """
-#     U = np.array(U)
-#     n = len(U[0])
-#     V = U.T # work with transpose(U) for ease
-#     for i in range(n):
-#         prev_basis = V[0:i]     # orthonormal basis before V[i]
-#         coeff_vec = np.dot(prev_basis, V[i].T)  # each entry is np.dot(V[j], V[i]) for all j < i
-#         V[i] -= np.dot(coeff_vec, prev_basis).T # subtract projections of V[i] onto already determined basis V[0:i]
-#         if np.linalg.la.norm(V[i]) < eps:
-#             V[i][V[i] < eps] = 0.   # set the small entries to 0
-#         else:
-#             V[i] /= np.linalg.la.norm(V[i])
-#     return V.T

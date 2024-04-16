@@ -1,4 +1,3 @@
-# tda libraries
 import umap
 import kmapper as km
 from ripser import ripser, Rips
@@ -25,8 +24,9 @@ from sklearn.cluster import KMeans, DBSCAN, AgglomerativeClustering, spectral_cl
 
 
 #----------------------------------------------------------------------------------------
-# mapper 
+# mapper algorithm
 #----------------------------------------------------------------------------------------
+
 
 def calc_mapper_graph(coords,
                     scaler=MinMaxScaler(), 
@@ -66,10 +66,33 @@ def calc_mapper_graph(coords,
     projected = mapper.fit_transform(coords, scaler=scaler, 
                                      projection=projection, 
                                      distance_matrix=False)
-    graph = mapper.map(projected, coords, cover=cover, clusterer=clusterer)
-    return graph
+    return mapper.map(projected, coords, cover=cover, clusterer=clusterer)
+
 
 #----------------------------------------------------------------------------------------
 # persistent homology
 #----------------------------------------------------------------------------------------
+
+
+def betti_summary(H):
+    try: 
+        persistence = H[:,1] - H[:,0]
+        return [np.max(persistence), len(H)]
+    except: 
+        return [np.nan, np.nan]
+
+def diagram_amplitude(dgm):
+    # amplitudes
+    if dgm.ndim == 2: dgm = dgm[None, :, :] # expects 3d input
+    n_dims = len(np.unique(dgm[:,:,2]))
+    amp_df = pd.DataFrame(columns=['metric'] + [f'amplitude{i}' for i in range(n_dims)])
+    for metric in ['betti', 'wasserstein', 'landscape', 'silhouette', 'persistence_image']:
+        ampl = Amplitude(metric=metric, order=None).fit_transform(dgm)
+        amp_df.loc[len(amp_df),:] = [metric] + ampl.tolist()[0]
+    return amp_df
+
+def gtda_to_ripser_diagram(dgm):
+    # go from gtda to ripser format
+    # note: ripser includes the infinitely persisting feature for dim 0
+    return [dgm[dgm[:,2] == d] for d in np.unique(dgm[:,2])]
 

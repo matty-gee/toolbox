@@ -4,11 +4,12 @@ import numpy   as np
 import pandas  as pd
 import scipy   as sp
 import nibabel as nib
-import nilearn as nil
+import nilearn
 from nilearn.maskers import NiftiLabelsMasker, NiftiMasker, NiftiSpheresMasker, NiftiMapsMasker
 from nilearn.image import load_img, get_data, new_img_like, math_img
 from nilearn.masking import compute_brain_mask
 import matplotlib.pyplot as plt
+
 
 #---------------------------------------------------------------------------------------------------------
 # nifti io
@@ -18,15 +19,13 @@ import matplotlib.pyplot as plt
 def load_nifti(nifti_fname):  
     return nib.load(nifti_fname)
 
-
 def get_nifti_info(nifti):
     ''' return dimensions, voxel size and affine matrix of a nifti '''
     if isinstance(nifti, str): nifti = nib.load(nifti)
-    dims = nifti.get_data().shape
-    vox_size = nifti.header.get_zooms()[0:3] # just get xyz
+    dims = nifti.get_fdata().shape
+    vox_size = nifti.header.get_zooms()[:3] # just get xyz
     affine_matrix = nifti.affine
     return dims, vox_size, affine_matrix 
-
 
 def make_nifti(brain_data, affine_matrix, vox_size):
     '''
@@ -45,14 +44,50 @@ def make_nifti(brain_data, affine_matrix, vox_size):
 
         [By Matthew Schafer, github: @matty-gee; 2020ish]
     '''
-    brain_data = brain_data.astype('double')  # Convert the output into a precision format that can be used by other applications
-    brain_data[np.isnan(brain_data)] = 0  # Exchange nans with zero to ensure compatibility with other applications
-    brain_nii = nib.Nifti1Image(brain_data, affine_matrix)  # create the volume image
-    hdr = brain_nii.header  # get a handle of the .nii file's header
+
+    # compatibility
+    brain_data = brain_data.astype('double')
+    brain_data[np.isnan(brain_data)] = 0
+
+    # create the volume image
+    brain_nii = nib.Nifti1Image(brain_data, affine_matrix)  
+    hdr = brain_nii.header 
     if brain_data.ndim == 4: hdr.set_zooms((vox_size[0], vox_size[1], vox_size[2], 0))
     else:                    hdr.set_zooms((vox_size[0], vox_size[1], vox_size[2]))
+    
     return brain_nii
 
+def make_nifti_compatible_crossplatform(nifti_fname, overwrite=False):
+    '''
+        Make a nifti compatible with cross-platform (nilearn & spm)
+
+        Arguments
+        ---------
+        nifti_fname : str
+            Path to nifti file
+        out_file : str
+            Path to save nifti file
+
+        Returns
+        -------
+        nothing 
+
+        [By Matthew Schafer, github: @matty-gee; 2020ish]
+    '''
+
+    # read in the nifti file
+    brain_nii = nib.load(nifti_fname)
+    brain_data = brain_nii.get_fdata()
+    affine_matrix = brain_nii.affine
+    vox_size = brain_nii.header.get_zooms()
+
+    # make the nifti again
+    brain_nii = make_nifti(brain_data, affine_matrix, vox_size)
+    if overwrite: 
+        out_fname = nifti_fname
+    else: 
+        out_fname = f"{nifti_fname.split('.')[0]}_matlab.nii" 
+    nib.save(brain_nii, out_fname) # save
 
 def save_as_nifti(brain_data, output_name, affine_mat, vox_size):
     '''
@@ -85,6 +120,28 @@ def save_as_nifti(brain_data, output_name, affine_mat, vox_size):
 #---------------------------------------------------------------------------------------------------------
 
 
+def compute_wholebrain_mask(nifti, threshold=0.10):
+    # wrapper for nilearn masking function to compute whole-brain mask
+    return nilearn.masking.compute_brain_mask(nifti, 
+                                              threshold=threshold, 
+                                              connected=False, 
+                                              opening=2, 
+                                              mask_type='whole-brain')
+
+def compute_gm_mask(nifti, threshold=0.25):
+    # wrapper for nilearn masking function to compute grey matter mask
+    return nilearn.masking.compute_brain_mask(nifti, 
+                                              threshold=threshold, 
+                                              connected=False, 
+                                              opening=2, 
+                                              mask_type='gm')
+
+def masks_union(mask_list):
+    return nil.masking.intersect_masks(mask_list, threshold=0, connected=False)
+
+def masks_intersection(mask_list):
+    return nilearn.masking.intersect_masks(mask_list, threshold=1, connected=False)
+
 def get_incl_gm_mask(func_img, gm_thresh=0.25):
     ''' returns a gm mask x included voxel mask for func image '''
     # incl any voxel != 0: these are voxels had some computation done to them
@@ -92,9 +149,8 @@ def get_incl_gm_mask(func_img, gm_thresh=0.25):
     # get a gm mask with specific threshold
     gm_mask = compute_brain_mask(func_img, mask_type='gm', threshold=gm_thresh, connected=False)
     # intersect the gm & voxel inclusion masks
-    incl_gm_mask = nil.masking.intersect_masks([incl_mask, gm_mask], threshold=1, connected=False)
+    incl_gm_mask = nilearn.masking.intersect_masks([incl_mask, gm_mask], threshold=1, connected=False)
     return incl_gm_mask
-
 
 def get_masked_img(func_img, mask_img):
     '''
@@ -114,44 +170,43 @@ def get_masked_img(func_img, mask_img):
 
         [By Matthew Schafer, github: @matty-gee; 2020ish]
     '''
-
     if isinstance(func_img, str): func_img = nib.load(func_img)
-    if isinstance(mask_img, str): func_img = nib.load(mask_img)
+    if isinstance(mask_img, str): mask_img = nib.load(mask_img)
+    
+    # make a masker object (force a resample)
+    masker = NiftiMasker(mask_img=mask_img, 
+                         target_affine=func_img.affine, 
+                         target_shape=func_img.get_fdata().shape) 
+    
+    # get masked volume
+    masked_data = masker.fit_transform(func_img) # 2D
 
-    # a masker to extract (force a resample)
-    masker = nil.input_data.NiftiMasker(mask_img=mask_img, 
-                                        target_affine=func_img.affine, 
-                                        target_shape=func_img.get_fdata().shape) 
-    # get masked volume (fit_transform extracts to 2d)
-    masked_data = masker.fit_transform(func_img) 
-    # get back to brain volume (inverse_transform outputs in 4d)
+    # transform back to 4D
     func_img_masked = masker.inverse_transform(masked_data)
-    # if input was in 3d, output in 3d
-    if func_img.ndim == 3:
-        data = get_data(func_img_masked)[:,:,:,0] 
-        func_img_masked = new_img_like(func_img, data, func_img.affine)
+
+    # if input was 3D, return 3D
+    if (func_img.ndim == 3) & (func_img_masked.ndim == 4):
+        func_img_masked = new_img_like(func_img, get_data(func_img_masked)[:,:,:,0], func_img.affine)
+
     return func_img_masked
 
-
-def get_voxels_from_mask(mask_img, sub_img, resample_to_sub=False, standardize=False):
+def get_voxels_from_mask(func_img, mask_img, resample_to_func=False, standardize=False):
     '''
         mask_img: 3d nii (ideally already resampled to correct dims)
         sub_img: 4d nii
         returns: array of shape (time_points, voxels)
     '''
-    if resample_to_sub:
-        sub_dims, _, sub_affine = get_nifti_info(sub_img)
-        masker = NiftiMasker(mask_img=mask_img, 
-                             target_affine=sub_affine, target_shape=sub_dims[0:3],
+    if resample_to_func:
+        sub_dims, _, sub_affine = get_nifti_info(func_img)
+        masker = NiftiMasker(mask_img=mask_img,
+                             target_affine=sub_affine, target_shape=sub_dims[:3],
                              standardize=standardize)
     else:
         masker = NiftiMasker(mask_img=mask_img, standardize=standardize)
-    return masker.fit_transform(sub_img)
-
+    return masker.fit_transform(func_img)
 
 def find_roi_labels_ixs(labels, roi_name='Hippocampus'):
     return [np.where(np.array(labels) == label)[0][0] for label in [l for l in labels if roi_name in l]]
-
 
 def get_timeseries(func_img, 
                    mask=None,
@@ -183,8 +238,8 @@ def get_timeseries(func_img,
             If passed, use in appropriate masker instance 
             NOTE: if 'mask' is an image and diff resolution from 'func_img', 'func_img' resampled to 'mask' unless target_shape and/or target_affine are provided
         mask_type : str (optional, default='gm-template')
-            'sphere' :
-            'roi' : 
+            'sphere' : coordinates for spherical mask
+            'roi' : mask image
             'map' : overlapping volumes
             'atlas' : overlapping volumes
         radius : _type_ (optional, default=None)
@@ -265,6 +320,14 @@ def get_timeseries(func_img,
 
     return timeseries.T, masker #TODO standardize shape of outputs across functions...
 
+def create_brain_mask(nii_fname, mask_type='whole-brain'):
+    brain_mask = nilearn.masking.compute_brain_mask(nii_fname, threshold=0.1, 
+                                                    connected=True, opening=2, 
+                                                    mask_type=mask_type)
+    _, vox_size, affine = get_nifti_info(nii_fname)
+    print(f'{os.path.dirname(nii_fname)}/brain_mask.nii')
+    save_as_nifti(brain_mask.get_fdata(), f'{os.path.dirname(nii_fname)}/brain_mask.nii', affine, vox_size)
+
 
 #---------------------------------------------------------------------------------------------------------
 # transformations
@@ -282,11 +345,12 @@ def resample_nifti(nifti_path, target_affine, target_shape, interpolation='neare
 # quality control
 #---------------------------------------------------------------------------------------------------------
 
+
 def output_mask_jpg(mask_path):
 
     # get mask
     mask_img  = nib.load(mask_path)
-    mask_data = mask_img.get_data()
+    mask_data = mask_img.get_fdata()
 
     # get info
     dims      = mask_data.shape
@@ -300,7 +364,6 @@ def output_mask_jpg(mask_path):
                                         annotate=False, draw_cross=False, axes=ax, 
                                         output_file=f'{mask_name}.jpg')
     
-
 def calc_roi_snr(func_fname, rois, nonbrain_coords=None, nonbrain_radius=10):
     '''
         Get temporal and spatial signal-to-noise ratios for rois in a functional image
@@ -328,23 +391,23 @@ def calc_roi_snr(func_fname, rois, nonbrain_coords=None, nonbrain_radius=10):
 
     # define an roi outside of the brain
     if nonbrain_coords is None:
-        func_shape = get_nifti_info(func_fname)[0][0:3]
+        func_shape = get_nifti_info(func_fname)[0][:3]
         nonbrain_coords = (func_shape[0]-5, func_shape[1]-5, func_shape[2]-5)
     nonbrain_masker     = NiftiSpheresMasker([nonbrain_coords], radius=nonbrain_radius)
     nonbrain_timeseries = nonbrain_masker.fit_transform(func_fname)
-    
+
     # loop over defined rois
     snr_df = pd.DataFrame(columns=['roi', 'ssnr', 'tsnr'])
     for r, roi in enumerate(rois):
         brain_timeseries = get_voxels_from_mask(roi, func_fname)
-        
+
         # spatial snr
         ssnr = np.nanmean(brain_timeseries) / np.nanstd(nonbrain_timeseries)
 
         # temporal snr
         voxelwise_tsnr = np.nanmean(brain_timeseries, 0) / np.nanstd(brain_timeseries, 0)
         tsnr = np.nanmean(voxelwise_tsnr)
-        
+
         snr_df.loc[r, :] = [roi, ssnr, tsnr]
-        
+
     return snr_df

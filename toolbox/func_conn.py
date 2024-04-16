@@ -9,7 +9,7 @@ import networkx as nx
 
 # my modules
 from images import get_timeseries, get_nifti_info, save_as_nifti
-from files import load_pickle, save_json, pickle_file
+from general_utils import load_pickle, save_json, pickle_file
 
 #-------------------------------------------------------------------------------------------
 # timeseries
@@ -19,11 +19,11 @@ from files import load_pickle, save_json, pickle_file
 def save_roi_timeseries(sub_id, lsa_dir):
     
     # define masks
-    mask_dir = '/sc/arion/projects/k23/Masks'
-    masks_dict = {'HO_Cortl': [datasets.fetch_atlas_harvard_oxford('cortl-maxprob-thr25-2mm'), 'atlas'], # 96
-                  'HO_Sub':   [datasets.fetch_atlas_harvard_oxford('sub-maxprob-thr25-2mm'), 'atlas'], # 21
-                  'Juelich':  [datasets.fetch_atlas_juelich('maxprob-thr25-2mm', symmetric_split=True), 'atlas'], # 131
-                  'Shen': [load_pickle(f'{mask_dir}/Shen_1mm_368_parcellation.pkl'), 'atlas'], # 368
+    mask_dir   = '/sc/arion/projects/k23/Masks' # minerva
+    masks_dict = {'HO_Cortl': [datasets.fetch_atlas_harvard_oxford('cortl-maxprob-thr25-2mm'), 'atlas'], # 96 regions
+                  'HO_Sub':   [datasets.fetch_atlas_harvard_oxford('sub-maxprob-thr25-2mm'), 'atlas'], # 21 regions
+                  'Juelich':  [datasets.fetch_atlas_juelich('maxprob-thr25-2mm', symmetric_split=True), 'atlas'], # 131 regions
+                  'Shen': [load_pickle(f'{mask_dir}/Shen_1mm_368_parcellation.pkl'), 'atlas'], # 368 regions
                   'Apriori_L-IFG_radius8': [[(-45, 41, -2)], 'sphere', 8], 
                   'Apriori_R-IFG_radius8': [[(51, 50, 1)], 'sphere', 8],
                   'Apriori_L-HPC_Tavares_radius8': [[(-22, -15, -18)], 'sphere', 8],
@@ -218,11 +218,9 @@ class GraphProperties:
             comms = next(comm_generator)
         if assign:
             self.communities = comms
-            counter = 1
-            for comm in comms:
+            for counter, comm in enumerate(comms, start=1):
                 for node_name in comm:
                     nx.set_node_attributes(self.graph, {node_name: counter}, "community")
-                counter += 1
         return comms
 
 
