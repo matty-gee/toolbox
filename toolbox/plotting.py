@@ -40,6 +40,7 @@ bw = 0.15 # this is a proportion of the total??
 # palettes etc
 #----------------------------------------------------------------------------------------------
 
+
 def random_colors(num_colors=10):
     from random import randint
     return ['#%06X' % randint(0, 0xFFFFFF) for _ in range(num_colors)]
@@ -134,7 +135,7 @@ def make_cmap(colors):
 
 
 #----------------------------------------------------------------------------------------------
-# saving 
+# saving plots
 #----------------------------------------------------------------------------------------------
 
 

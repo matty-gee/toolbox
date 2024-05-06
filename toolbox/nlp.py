@@ -396,7 +396,7 @@ def get_sentiment(text, preprocess=True):
     '''
 
     if preprocess:
-        text = preprocess_text(text, tokenize=False)
+        text = preprocess_text(text, return_tokenized=False)
 
     # nltk sentiment
     sia = SentimentIntensityAnalyzer()

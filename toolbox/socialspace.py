@@ -100,14 +100,14 @@ def add_neutrals(arr, add=None):
         temp = np.insert(temp, row, add, axis= 0)
     return temp
 
-def organize_by_character(data, remove_neutrals=False):
+def organize_by_character(data, neutrals=False):
 
     if data.shape[0] == 63:
         trialwise_char_roles = decision_trials['char_role_num'].values
-        if remove_neutrals:
-            n_chars = 5 
-        else: 
+        if neutrals:
             n_chars = 6
+        else: 
+            n_chars = 5
     elif data.shape[0] == 60:
         trialwise_char_roles = remove_neutrals(decision_trials['char_role_num'].values)
         n_chars = 5

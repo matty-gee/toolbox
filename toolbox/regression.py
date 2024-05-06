@@ -2,15 +2,15 @@ import random, patsy
 import scipy
 import pandas as pd
 import numpy as np
-
 import statsmodels.api as sm
 import statsmodels.formula.api as smf
 from sklearn.linear_model import LinearRegression, HuberRegressor
 from scipy.stats import chi2
 from sklearn.metrics import r2_score
-
+from patsy import dmatrices
 import seaborn as sns
 import matplotlib.pyplot as plt
+
 
 flatten_lists = lambda l: [item for sublist in l for item in sublist]
   
@@ -232,6 +232,41 @@ def compute_r2_adjusted(r2, n, p):
     p: number of features
     '''
     return 1 - (1 - r2) * (n - 1) / (n - p - 1)
+
+def compute_r2_partial(formula, df, predictor):
+    """
+    Computes the partial R^2 for a given predictor within a multiple regression model and returns the number of predictors.
+    Ensures that an intercept (constant) is included in the model by default.
+
+    Args:
+    formula (str): A patsy formula for the full model ('Y ~ X1 + X2 + X3').
+    df (DataFrame): Pandas DataFrame containing the data.
+    predictor (str): Name of the predictor of interest (e.g., 'X1').
+
+    Returns:
+    float: The partial R^2 value for the predictor.
+    int: The number of predictors in the model, including the intercept.
+    """
+    # Fit the full model
+    y, X = dmatrices(formula, data=df, return_type='dataframe')
+    model_full = sm.OLS(y, X).fit()
+
+    # Count predictors, including the constant
+    num_predictors = X.shape[1] - 1  # assumes there's an intercept
+    # print(X)
+
+    # Modify the formula for the reduced model (exclude the predictor of interest)
+    reduced_formula = formula.replace(f'+ {predictor}', '').replace(f'{predictor} +', '').replace(predictor, '')
+    y_reduced, X_reduced = dmatrices(reduced_formula, data=df, return_type='dataframe')
+    model_reduced = sm.OLS(y_reduced, X_reduced).fit()
+
+    # Compute partial R^2
+    rss_full = model_full.ssr
+    rss_reduced = model_reduced.ssr
+    partial_r_squared = (rss_reduced - rss_full) / rss_reduced
+
+    return partial_r_squared, num_predictors
+
 
 
 #-------------------------------------------------------------------------------------------

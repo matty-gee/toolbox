@@ -17,7 +17,7 @@ from utils_project import *
 from mvpa import *
 from info import decision_trials, character_roles, task
 from general_utils import merge_dfs, symm_mat_to_ut_vec, ut_vec_to_symm_mat
-from trajectories import *
+from geometry import *
 from socialspace import remove_neutrals, organize_by_character
 
 

@@ -1137,24 +1137,44 @@ def undirected_hausdorff(U, V):
     # symmetric measure of the distance between two sets of points
     return max(directed_hausdorff(U, V)[0], directed_hausdorff(V, U)[0])
 
-def pairwise_trajectory_distances(trajectories, metric='euclidean'):
+def pairwise_trajectory_distances(trajectories, metric='euclidean_pw'):
 
     # calculate some notion of distance between different trajectories...
-
     # arguments:
-    # - trajectories: (n_trajectories, n_points, n_dimensions)
+    # - trajectories: array with shape (n_trajectories, n_points, n_dimensions)
     # - metric: what to compute
     # returns: distance_matrix with shape = (n_trajectories, n_trajectories)
+
+    # if trajectories is a list, turn it into an array
+    if isinstance(trajectories, list):
+        trajectories = np.array(trajectories)
     
     n_trajs = trajectories.shape[0]
     distance_matrix = np.zeros((n_trajs, n_trajs))
     for i, j in itertools.combinations(range(n_trajs), 2):
-        if metric == 'frechet':      d = frdist(trajectories[i], trajectories[j])
-        elif metric == 'dtw':        d = fastdtw(trajectories[i], trajectories[j], dist=euclidean)[0]
-        elif metric == 'hausdorff':  d = undirected_hausdorff(trajectories[i], trajectories[j])
-        elif metric == 'procrustes': d = procrustes(trajectories[i], trajectories[j])[2]
-        else:                        d = np.nanmean(cdist(trajectories[i], trajectories[j], metric=metric).diagonal()) # pairwise or elementwise?
+
+        # these are all pairwise distances
+        if metric == 'frechet':          d = frdist(trajectories[i], trajectories[j])
+        elif metric == 'dtw':            d = fastdtw(trajectories[i], trajectories[j], dist=euclidean)[0]
+        elif metric == 'hausdorff':      d = undirected_hausdorff(trajectories[i], trajectories[j])
+
+        # elementwise
+        elif metric == 'procrustes':     d = procrustes(trajectories[i], trajectories[j])[2]
+
+        # these can be pairwise or elementwise distances
+        elif metric == 'euclidean_pw':   d = np.nanmean(symm_mat_to_ut_vec(cdist(trajectories[i], trajectories[j], metric='euclidean'))) 
+        elif metric == 'euclidean_ew':   d = np.nanmean(cdist(trajectories[i], trajectories[j], metric='euclidean').diagonal())
+        elif metric == 'correlation_pw': d = np.nanmean(symm_mat_to_ut_vec(cdist(trajectories[i], trajectories[j], metric='correlation')))
+        elif metric == 'correlation_ew': d = np.nanmean(cdist(trajectories[i], trajectories[j], metric='correlation').diagonal())
+        elif metric == 'cosine_pw':      d = np.nanmean(symm_mat_to_ut_vec(cdist(trajectories[i], trajectories[j], metric='cosine')))
+        elif metric == 'cosine_ew':      d = np.nanmean(cdist(trajectories[i], trajectories[j], metric='cosine').diagonal())
+        elif metric == 'hamming_pw':     d = np.nanmean(symm_mat_to_ut_vec(cdist(trajectories[i], trajectories[j], metric='hamming')))
+        elif metric == 'hamming_ew':     d = np.nanmean(cdist(trajectories[i], trajectories[j], metric='hamming').diagonal())
+
+        else: raise ValueError('Invalid metric')
+
         distance_matrix[i,j] = distance_matrix[j,i] = d
+        
     return distance_matrix
 
 
